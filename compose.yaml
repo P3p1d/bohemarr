@@ -1,0 +1,25 @@
+services:
+  bohemarr:
+    build: .
+    image: bohemarr:local
+    init: false
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-http://bohemarr:8787}
+      API_KEY: ${API_KEY:-}
+      TZ: ${TZ:-Europe/Prague}
+    volumes:
+      - config:/data
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads
+    networks:
+      - media
+    stop_grace_period: 30s
+
+volumes:
+  config:
+
+networks:
+  media:
+    name: bohemarr

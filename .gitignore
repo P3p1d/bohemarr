@@ -1,0 +1,15 @@
+# Dependencies and build output
+/node_modules/
+/dist/
+
+# Local runtime state: private configuration, API key, database, downloads
+/data/
+/downloads/
+
+# Local deployment settings (may contain the API key or host paths)
+.env
+.env.*
+/compose.override.yaml
+
+*.log
+.DS_Store

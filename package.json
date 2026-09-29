@@ -1,0 +1,38 @@
+{
+  "name": "bohemarr",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Czech and Slovak TV archives for Sonarr and Radarr: a Newznab indexer and SABnzbd-compatible download client",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iamanro/bohemarr.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "dev": "node --watch src/main.ts",
+    "check": "tsc",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@fastify/multipart": "^10.1.2",
+    "cheerio": "^1.2.0",
+    "fast-xml-parser": "^5.11.2",
+    "fastify": "^5.12.5",
+    "i18n-iso-countries": "^7.14.0",
+    "json5": "^2.2.3",
+    "quickjs-emscripten": "^0.32.0",
+    "ws": "^8.22.0",
+    "youtubei.js": "^18.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2"
+  }
+}

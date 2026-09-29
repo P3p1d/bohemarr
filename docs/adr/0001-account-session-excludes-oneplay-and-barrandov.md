@@ -1,0 +1,3 @@
+# Account session module excludes Oneplay and Barrandov
+
+Prima, Voyo, JOJ Play and SledovaniTV share one account session module (single-flight login, expiry renewal, invalidate-and-retry-once on rejection). Oneplay stays outside it: its session state is pushed into every pooled WebSocket connection, validated by a probe request, and involves account, profile and PIN steps, so forcing it behind the shared interface would make that interface as complex as the connection pool. Barrandov stays outside because it has no session to keep: it logs in per playback resolution, and adding caching there would be a behaviour change nobody asked for.

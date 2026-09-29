@@ -1,0 +1,23 @@
+{
+  "categories": ["tv", "movies"],
+  "concurrency": 2,
+  "providers": {
+    "ceskatelevize": { "enabled": true },
+    "streamcz": { "enabled": true },
+    "iprima": { "enabled": false, "username": "", "password": "" },
+    "oneplay": { "enabled": false, "username": "", "password": "" },
+    "novaplus": { "enabled": false },
+    "tncz": { "enabled": false },
+    "markizaplus": { "enabled": false },
+    "markizavoyo": { "enabled": false, "username": "", "password": "" },
+    "jojplay": { "enabled": false, "username": "", "password": "" },
+    "sledovanitv": { "enabled": false, "username": "", "password": "" },
+    "tvprimadoma": { "enabled": false },
+    "tvbarrandov": { "enabled": false, "username": "", "password": "" },
+    "tvautosalon": { "enabled": false },
+    "stvr": { "enabled": false },
+    "html5": { "enabled": false },
+    "youtube": { "enabled": false },
+    "direct": { "enabled": false, "catalog": [] }
+  }
+}
