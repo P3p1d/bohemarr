@@ -5,6 +5,7 @@ import { createPrimaProviders } from '../src/providers/prima.ts';
 import { searchCatalogue } from '../src/catalogue.ts';
 import { SeriesBindings } from '../src/series-binding.ts';
 import { Store } from '../src/store.ts';
+import { DatabaseSync } from 'node:sqlite';
 import type { SeriesIdentity } from '../src/types.ts';
 
 const root = 'https://www.iprima.cz';
@@ -26,17 +27,22 @@ function nuxtPage(title: Record<string, unknown>): string {
   return `<script id="__NUXT_DATA__">${JSON.stringify(table)}</script>`;
 }
 
-function catalogue(t: TestContext, beforeRequest?: (url: string) => void) {
+function sitemap(entries: Array<{ uri: string; lastmod: string }>): string {
+  return `<urlset>${entries.map(({ uri, lastmod }) => `<url><loc>${uri}</loc><lastmod>${lastmod}</lastmod></url>`).join('')}</urlset>`;
+}
+
+/** `beforeRequest` sees every request; `init.headers` is set only on authenticated Prima+ requests. */
+function catalogue(t: TestContext, beforeRequest?: (url: string, init?: RequestInit) => void) {
+  // The foreign edition changed more recently, so the index lists it first.
   const programs = [
-    { uri: foreignUri, title: 'Ano, šéfe s Gordonem Ramsaym USA', type: 'tv_series', id: 'foreign', year: 2007, countries: [{ label: 'USA' }] },
-    { uri: czechUri, title: 'Ano, šéfe!', type: 'tv_series', id: 'czech', year: 2009, countries: [{ label: 'ČR' }] },
+    { uri: foreignUri, title: 'Ano, šéfe s Gordonem Ramsaym USA', type: 'tv_series', id: 'foreign', year: 2007, countries: [{ label: 'USA' }], lastmod: '2026-09-28T00:00:00+00:00' },
+    { uri: czechUri, title: 'Ano, šéfe!', type: 'tv_series', id: 'czech', year: 2009, countries: [{ label: 'ČR' }], lastmod: '2026-09-01T00:00:00+00:00' },
   ];
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    beforeRequest?.(url);
-    if (url.startsWith('https://s0.api.mdi.sune.app/websites/iprima/programs?')) {
-      return Response.json({ programs, pagination: { next_cursor: null } });
-    }
+    beforeRequest?.(url, init);
+    if (url === `${root}/sitemap-series.xml`) return new Response(sitemap(programs));
+    if (url === `${root}/sitemap-movie.xml`) return new Response(sitemap([]));
     if (url === 'https://ucet.iprima.cz/api/session/create') {
       return Response.json({ sessionId: 'session', accessToken: { value: 'test-token' } });
     }
@@ -60,11 +66,14 @@ function catalogue(t: TestContext, beforeRequest?: (url: string) => void) {
       throw new Error(`Unexpected RPC ${rpc.method}`);
     }
     const program = programs.find(p => p.uri === url);
-    if (program) return new Response(nuxtPage({ ...program, type: 'series' }));
+    if (program) return new Response(`<head><title>${program.title} online ke zhlédnutí | prima+</title></head>${nuxtPage({ ...program, type: 'series' })}`);
     if (url.startsWith('https://zoom.iprima.cz/snippet/') || url === 'https://cnn.iprima.cz/porady') return new Response('');
     throw new Error(`Unexpected request ${url}`);
   });
-  return createPrimaProviders({ iprima: { enabled: true, username: 'test@example.invalid', password: 'test-password' } })[0]!;
+  const database = new DatabaseSync(':memory:');
+  const provider = createPrimaProviders({ iprima: { enabled: true, username: 'test@example.invalid', password: 'test-password' } }, database)[0]!;
+  t.after(async () => { await provider.close?.(); database.close(); });
+  return provider;
 }
 
 test('Prima exact show match is not hidden by a larger foreign edition before pagination', async t => {
@@ -77,8 +86,8 @@ test('Prima exact show match is not hidden by a larger foreign edition before pa
 
 test('Prima browse returns a full requested page without waiting for unrelated programmes', async t => {
   const controller = new AbortController();
-  const provider = catalogue(t, url => {
-    if (url === czechUri) {
+  const provider = catalogue(t, (url, init) => {
+    if (url === czechUri && init?.headers) {
       controller.abort(new Error('Request deadline exceeded while loading the next programme'));
       controller.signal.throwIfAborted();
     }

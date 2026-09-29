@@ -165,6 +165,7 @@ Each entry under `providers` is keyed by a provider ID from [Supported sources](
 A few provider notes:
 
 - **Prima+** registers its web device as part of login. Leave `deviceId` unset unless you need a specific device. Your other devices are never removed.
+- **Prima+ catalogue.** Bohemarr builds its own index of Prima+ series and films from iPrima's public sitemaps and stores it in the database. The first Prima+ search waits for the sitemaps (a few seconds). The programme names are then read from the pages in the background, one page per second, because iPrima's CDN blocks an address that sends too many requests. The first pass over the roughly 4,100 programmes takes about an hour and a half. Until then, searches match names derived from the page addresses, and releases still carry the real names. After that, only changed programmes are re-read, and the listing is refreshed when it is older than six hours.
 - **SledovaniTV** can reuse an already paired device: `deviceId` is the device ID, `profile` the profile ID and `cookies` the session ID (not a Cookie header). Add `username`/`password` too if Bohemarr should log in again when that session expires.
 - **Voyo** accepts a `votoken` session in `cookies`. Once Voyo refuses it, `username`/`password` are required.
 
@@ -337,6 +338,7 @@ The image has a Docker health check on `/health`. Useful log lines:
 | Results appear but Sonarr rejects them | Sources do not publish resolution or size. Your quality profile or size limits may reject releases parsed as `WEBDL-480p`, or with size 0. |
 | `An ongoing … live stream cannot be imported` or `Live … streams are not supported for download` | Live broadcasts are refused on purpose; wait until the programme is in the archive. |
 | Playback denied for an account source | The account lacks the entitlement, or its session was refused twice. Check the credentials; Bohemarr logs in again once by itself. |
+| iPrima answers `HTTP 403` everywhere (log: `iPrima refused a page`) | iPrima's CDN temporarily blocks addresses that send too many requests, playback included. In tests it lifted after about ten minutes. Do not run other iPrima scrapers from the same address. |
 | Protected download fails at the key step | The Widevine key service (`wvApiUrl`) or the source's licence server is unreachable. |
 
 ## How it works
@@ -364,7 +366,7 @@ Domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md), architecture decisio
 
 ## Limitations
 
-- **External services.** Protected (Widevine) sources need a key service; by default this is the one operated by the original Media Downloader project (`wv.api.md.sune.app`). Prima+ catalogue browsing uses that project's program index (`s0.api.mdi.sune.app`). TVDB metadata comes from Sonarr's public Skyhook API. If any of these change or disappear, the dependent features stop working.
+- **External services.** Protected (Widevine) sources need a key service; by default this is the one operated by the original Media Downloader project (`wv.api.md.sune.app`). TVDB metadata comes from Sonarr's public Skyhook API. If either changes or disappears, the dependent features stop working.
 - **Undocumented upstream APIs.** Sources change their sites and APIs without notice; a provider can break until it is updated.
 - **No resolution or size metadata** from most sources, so Sonarr often parses releases as `WEBDL-480p` with size 0.
 - **Verified sources.** Account-based playback has been verified for Oneplay (including a protected episode) and for Prima+ on clear media. JOJ Play, Voyo SK, SledovaniTV and protected Prima+ content have not been verified with an entitled account.

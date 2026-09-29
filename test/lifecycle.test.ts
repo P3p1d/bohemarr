@@ -119,7 +119,7 @@ test('Radarr title-and-year queries distinguish films with the same title', asyn
   using store = f.store;
   const movie: Release = { id: 'original-film', provider: 'direct', kind: 'movie', title: 'Example Film', year: 2008, url: 'https://example.test/original.mp4' };
   const remake: Release = { ...movie, id: 'remade-film', year: 2024, url: 'https://example.test/remake.mp4' };
-  const providers = createProviders({ ...f.config, providers: { direct: { enabled: true, catalog: [movie, remake] } } });
+  const providers = createProviders({ ...f.config, providers: { direct: { enabled: true, catalog: [movie, remake] } } }, f.store.database);
   const indexer = new Indexer(f.config, f.store, new Map([['direct', providers.get('direct')!]]), new SeriesBindings(f.store.database));
   const xml = await indexer.search({ t: 'search', cat: '2000', q: 'Example Film 2008' }, new AbortController().signal);
   assert.match(xml, /<comments>https:\/\/example\.test\/original\.mp4<\/comments>/);

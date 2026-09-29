@@ -8,7 +8,7 @@ import { createServer } from './server.ts';
 
 const config = await loadConfig();
 const store = new Store(await databasePath(config.dataDir));
-const providers = createProviders(config);
+const providers = createProviders(config, store.database);
 const queue = new Queue(store, config, providers, createMediaDownloader(config));
 const server = await createServer(config, store, queue, providers);
 const cleanup = new AsyncDisposableStack();

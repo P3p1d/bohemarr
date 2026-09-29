@@ -4,14 +4,16 @@ import { createCzechPublicProviders } from './czech-public.ts';
 import { createNovaMarkizaProviders } from './nova-markiza.ts';
 import { createPublicSiteProviders } from './public-sites.ts';
 import { createJojSledovaniProviders } from './joj-sledovani.ts';
+import type { DatabaseSync } from 'node:sqlite';
 import { releaseId } from './common.ts';
 import type { Config, Provider, Release } from '../types.ts';
 
-export function createProviders(config: Config): Map<string, Provider> {
+/** `database` is the service database; providers that keep local state (the Prima+ index) own tables in it. */
+export function createProviders(config: Config, database: DatabaseSync): Map<string, Provider> {
   const providers = new Map<string, Provider>();
   for (const factory of [createPrimaProviders, createOneplayProviders, createCzechPublicProviders,
     createNovaMarkizaProviders, createPublicSiteProviders, createJojSledovaniProviders]) {
-    for (const provider of factory(config.providers)) {
+    for (const provider of factory(config.providers, database)) {
       if (providers.has(provider.id)) throw new Error(`Duplicate provider ID: ${provider.id}`);
       const entries = catalogueEntries(provider.id, config.providers[provider.id]?.catalog);
       providers.set(provider.id, entries.length ? { ...provider, entries } : provider);

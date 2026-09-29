@@ -21,13 +21,14 @@ import type { AnyNode } from 'domhandler';
 import type { Catalogue, CatalogueQuery, License, MediaKind, MediaSource, Provider, ProviderConfig, Release, SeriesIdentity, ProgramMetadata } from '../types.ts';
 import { isSeriesCandidate } from '../series-identity.ts';
 import { fetchJson, fetchText, mediaType, releaseId } from './common.ts';
-import { base64url, extractPlayIds, get, has, Nuxt, PrimaAuthError, PrimaMessageError, PrimaRpc } from './prima-common.ts';
+import { extractPlayIds, get, has, Nuxt, PrimaAuthError, PrimaMessageError, PrimaRpc } from './prima-common.ts';
+import type { DatabaseSync } from 'node:sqlite';
 import { PrimaAuthenticator } from './prima-auth.ts';
+import { PrimaIndex, pageTitle } from './prima-index.ts';
 import { SessionRejected } from './account-session.ts';
 
 const PROVIDER_ID = 'iprima';
 const REFERER = 'https://www.iprima.cz/';
-const MDI_PROGRAMS_URL = 'https://s0.api.mdi.sune.app/websites/iprima/programs';
 const CNN_PROGRAMS_PAGE = 'https://cnn.iprima.cz/porady';
 const AXDRM_LICENSE_URL = 'https://drm-widevine-licensing.axprod.net/AcquireLicense';
 
@@ -40,6 +41,8 @@ interface PrimaProgram {
   title: string;
   kind: MediaKind;
   site: Site;
+  /** False for a Prima+ programme whose index title is still derived from its URL. */
+  titled?: boolean;
 }
 
 interface PrimaEpisode {
@@ -49,15 +52,17 @@ interface PrimaEpisode {
   episode?: number;
 }
 
-export function createPrimaProviders(configs: Record<string, ProviderConfig>): Provider[] {
+/** `database` holds the Prima+ programme index (see `PrimaIndex`). */
+export function createPrimaProviders(configs: Record<string, ProviderConfig>, database: DatabaseSync): Provider[] {
   const config = configs[PROVIDER_ID] ?? {};
   if (config.enabled === false) return [];
 
   const auth = new PrimaAuthenticator(config);
+  const index = new PrimaIndex(database);
 
   const catalogue: Catalogue<PrimaProgram> = {
     concurrency: 4,
-    programs: (_query: CatalogueQuery, signal: AbortSignal) => programs(auth, signal),
+    programs: (_query: CatalogueQuery, signal: AbortSignal) => programs(auth, index, signal),
     program: (id: string, signal: AbortSignal) => boundProgram(id, signal),
     releases: (program: PrimaProgram, _query: CatalogueQuery, signal: AbortSignal) => releases(program, auth, signal),
   };
@@ -66,8 +71,9 @@ export function createPrimaProviders(configs: Record<string, ProviderConfig>): P
     id: PROVIDER_ID,
     name: 'iPrima',
     catalogue,
-    seriesCandidates: auth.hasCredentials() ? seriesCandidates : undefined,
+    seriesCandidates: auth.hasCredentials() ? (identity, signal) => seriesCandidates(index, identity, signal) : undefined,
     resolve: (release: Release, signal: AbortSignal) => resolve(release, signal, auth),
+    close: () => index.close(),
   }];
 }
 
@@ -75,9 +81,9 @@ export function createPrimaProviders(configs: Record<string, ProviderConfig>): P
 // Catalogue
 // ---------------------------------------------------------------------------------------------
 
-async function* programs(auth: PrimaAuthenticator, signal: AbortSignal): AsyncGenerator<PrimaProgram> {
+async function* programs(auth: PrimaAuthenticator, index: PrimaIndex, signal: AbortSignal): AsyncGenerator<PrimaProgram> {
   const sites: Site[] = auth.hasCredentials() ? [...BROWSABLE_SITES] : ['zoom', 'cnn'];
-  for (const site of sites) yield* programsForSite(site, signal);
+  for (const site of sites) yield* programsForSite(site, index, signal);
 }
 
 async function boundProgram(id: string, signal: AbortSignal): Promise<PrimaProgram | undefined> {
@@ -91,7 +97,9 @@ async function boundProgram(id: string, signal: AbortSignal): Promise<PrimaProgr
 }
 
 async function* releases(program: PrimaProgram, auth: PrimaAuthenticator, signal: AbortSignal): AsyncGenerator<Release> {
-  for await (const episode of episodesForSite(program.site, program, auth, signal)) yield buildRelease(program, episode);
+  // Releases carry the real programme name, which Sonarr/Radarr parse; a URL-derived one would not match.
+  const named = program.titled === false ? { ...program, title: await pageTitle(program.uri, signal) ?? program.title } : program;
+  for await (const episode of episodesForSite(named.site, named, auth, signal)) yield buildRelease(named, episode);
 }
 
 function buildRelease(program: PrimaProgram, episode: PrimaEpisode): Release {
@@ -110,38 +118,17 @@ function buildRelease(program: PrimaProgram, episode: PrimaEpisode): Release {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Program listing — ports `SnippetProgramObtainer` / `StaticProgramObtainer` / `PrimaPlus.MDI`
+// Program listing — ports `SnippetProgramObtainer` / `StaticProgramObtainer`; Prima+ uses PrimaIndex
 // ---------------------------------------------------------------------------------------------
 
-async function* programsForSite(site: Site, signal: AbortSignal): AsyncGenerator<PrimaProgram> {
+async function* programsForSite(site: Site, index: PrimaIndex, signal: AbortSignal): AsyncGenerator<PrimaProgram> {
   switch (site) {
-    case 'www': yield* mdiPrograms(signal); return;
+    case 'www':
+      for await (const program of index.programs(signal)) yield { ...program, id: program.uri, site: 'www' };
+      return;
     case 'zoom': yield* zoomPrograms(signal); return;
     case 'cnn': yield* cnnPrograms(signal); return;
     default: return; // fresh/zeny/cool never exposed program listings upstream (Features.MEDIA only)
-  }
-}
-
-async function* mdiPrograms(signal: AbortSignal): AsyncGenerator<PrimaProgram> {
-  let cursor: string | null = base64url('{}');
-
-  while (cursor) {
-    const url: string = `${MDI_PROGRAMS_URL}?cursor=${encodeURIComponent(cursor)}&size=100`;
-    const data: Record<string, unknown> = await fetchJson<Record<string, unknown>>(url, signal);
-
-    for (const item of get<unknown[]>(data, 'programs', [])) {
-      const type = get<string>(item, 'type', '');
-      const uri = get<string>(item, 'uri', '');
-      yield {
-        id: uri,
-        uri,
-        title: get<string>(item, 'title', ''),
-        kind: type === 'movie' ? 'movie' : 'tv',
-        site: 'www',
-      };
-    }
-
-    cursor = get<string | null>(data, 'pagination.next_cursor', null);
   }
 }
 
@@ -216,9 +203,9 @@ async function primaPlusTitle(uri: string, signal: AbortSignal): Promise<Record<
   throw new Error(`Unable to extract Prima+ program metadata for ${uri}`);
 }
 
-async function seriesCandidates(identity: SeriesIdentity, signal: AbortSignal): Promise<ProgramMetadata[]> {
+async function seriesCandidates(index: PrimaIndex, identity: SeriesIdentity, signal: AbortSignal): Promise<ProgramMetadata[]> {
   const candidates: ProgramMetadata[] = [];
-  for await (const program of mdiPrograms(signal)) {
+  for await (const program of index.programs(signal)) {
     if (program.kind !== 'tv' || !isSeriesCandidate(program.title, identity)) continue;
     const title = await primaPlusTitle(program.uri, signal);
     if (get<string>(title, 'type', '') !== 'series') continue;
