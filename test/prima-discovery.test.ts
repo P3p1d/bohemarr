@@ -32,7 +32,12 @@ function sitemap(entries: Array<{ uri: string; lastmod: string }>): string {
 }
 
 /** `beforeRequest` sees every request; `init.headers` is set only on authenticated Prima+ requests. */
-function catalogue(t: TestContext, beforeRequest?: (url: string, init?: RequestInit) => void) {
+function catalogue(
+  t: TestContext,
+  beforeRequest?: (url: string, init?: RequestInit) => void,
+  rpcResponse?: (request: { method: string; params: Record<string, unknown> }) => Response | undefined,
+) {
+  let logins = 0;
   // The foreign edition changed more recently, so the index lists it first.
   const programs = [
     { uri: foreignUri, title: 'Ano, šéfe s Gordonem Ramsaym USA', type: 'tv_series', id: 'foreign', year: 2007, countries: [{ label: 'USA' }], lastmod: '2026-09-28T00:00:00+00:00' },
@@ -44,7 +49,8 @@ function catalogue(t: TestContext, beforeRequest?: (url: string, init?: RequestI
     if (url === `${root}/sitemap-series.xml`) return new Response(sitemap(programs));
     if (url === `${root}/sitemap-movie.xml`) return new Response(sitemap([]));
     if (url === 'https://ucet.iprima.cz/api/session/create') {
-      return Response.json({ sessionId: 'session', accessToken: { value: 'test-token' } });
+      logins++;
+      return Response.json({ sessionId: `session-${logins}`, accessToken: { value: `test-token-${logins}` } });
     }
     if (url === `${root}/profily`) {
       return new Response(`<script id="__NUXT_DATA__">${JSON.stringify([
@@ -53,6 +59,8 @@ function catalogue(t: TestContext, beforeRequest?: (url: string, init?: RequestI
     }
     if (url === 'https://gateway-api.prod.iprima.cz/json-rpc/') {
       const rpc = JSON.parse(String(init?.body));
+      const override = rpcResponse?.(rpc);
+      if (override) return override;
       if (rpc.method === 'vdm.frontend.season.list.hbbtv') {
         return Response.json({ result: { data: [{ id: `${rpc.params.id}-season`, seasonNumber: 1 }] } });
       }
@@ -75,6 +83,44 @@ function catalogue(t: TestContext, beforeRequest?: (url: string, init?: RequestI
   t.after(async () => { await provider.close?.(); database.close(); });
   return provider;
 }
+
+for (const method of ['vdm.frontend.season.list.hbbtv', 'vdm.frontend.episodes.list.hbbtv']) {
+  test(`Prima search renews a rejected account token during ${method}`, async t => {
+    let expired = false;
+    const provider = catalogue(t, undefined, request => {
+      if (expired && request.method === method && request.params._accessToken === 'test-token-1') {
+        return Response.json({ result: { error: { message: 'AccessToken is not valid.' } } });
+      }
+      return undefined;
+    });
+    const signal = new AbortController().signal;
+    const query = { q: '', programId: czechUri, kind: 'tv' as const, season: 1, episode: 1, limit: 1, offset: 0 };
+    await searchCatalogue(provider, query, signal);
+    expired = true;
+    const releases = await searchCatalogue(provider, query, signal);
+    assert.deepEqual(releases.map(release => release.url), [`${czechUri}/season-1/episode-1`]);
+  });
+}
+
+test('Prima search surfaces a repeatedly rejected token after one new login', async t => {
+  let logins = 0;
+  const provider = catalogue(t, url => {
+    if (url === 'https://ucet.iprima.cz/api/session/create') logins++;
+  }, () => Response.json({ result: { error: { message: 'AccessToken is not valid.' } } }));
+  await assert.rejects(searchCatalogue(provider,
+    { q: '', programId: czechUri, kind: 'tv', limit: 1, offset: 0 }, new AbortController().signal), /AccessToken is not valid/);
+  assert.equal(logins, 2);
+});
+
+test('Prima search does not replace an account session for an unrelated RPC error', async t => {
+  let logins = 0;
+  const provider = catalogue(t, url => {
+    if (url === 'https://ucet.iprima.cz/api/session/create') logins++;
+  }, () => Response.json({ result: { error: { message: 'Programme is unavailable.' } } }));
+  await assert.rejects(searchCatalogue(provider,
+    { q: '', programId: czechUri, kind: 'tv', limit: 1, offset: 0 }, new AbortController().signal), /Programme is unavailable/);
+  assert.equal(logins, 1);
+});
 
 test('Prima exact show match is not hidden by a larger foreign edition before pagination', async t => {
   const provider = catalogue(t);

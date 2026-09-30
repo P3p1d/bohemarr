@@ -8,6 +8,7 @@
  *  - small dotted-path JSON accessors mirroring `JSON.JSONCollection#getString/getInt/...`.
  */
 import { fetchText } from './common.ts';
+import { SessionRejected } from './account-session.ts';
 
 export class PrimaMessageError extends Error {}
 export class PrimaAuthError extends Error {}
@@ -217,7 +218,10 @@ export class PrimaRpc {
     });
 
     const json = JSON.parse(text) as Record<string, unknown>;
-    return (get(json, 'result', null) as Record<string, unknown> | null) ?? json;
+    const result = (get(json, 'result', null) as Record<string, unknown> | null) ?? json;
+    const message = get<string>(result, 'error.message', '');
+    if (message === 'AccessToken is not valid.') throw new SessionRejected(message);
+    return result;
   }
 
   static isError(json: Record<string, unknown>): boolean {

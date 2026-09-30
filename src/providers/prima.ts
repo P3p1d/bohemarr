@@ -222,16 +222,16 @@ async function seriesCandidates(index: PrimaIndex, identity: SeriesIdentity, sig
 async function* primaPlusEpisodes(program: PrimaProgram, auth: PrimaAuthenticator, signal: AbortSignal): AsyncGenerator<PrimaEpisode> {
   if (program.kind === 'movie') { yield { uri: program.uri, title: null }; return; }
 
-  let identified: { programId: string; accessToken: string };
+  let programId: string;
   try {
-    identified = await auth.run(async (session, signal) => {
+    programId = await auth.run(async (session, signal) => {
       const headers = auth.headers(session);
       const html = await fetchText(program.uri, signal, { headers });
       const nuxt = Nuxt.extract(html);
       if (nuxt) {
         for (const value of Object.values(nuxt.data())) {
           const id = get<string>(value, 'title.id', '');
-          if (id) return { programId: id, accessToken: session.accessToken };
+          if (id) return id;
         }
       }
       throw new SessionRejected(`Unable to extract Prima+ program id for ${program.uri}`);
@@ -244,8 +244,14 @@ async function* primaPlusEpisodes(program: PrimaProgram, auth: PrimaAuthenticato
   // Each season's episodes already arrive newest-first (requested `ordering: desc`); sorting
   // seasons newest-first too, and fetching lazily, yields the whole Program newest-first without
   // fetching a season the caller never asks for.
-  const seasons = (await listSeasons(identified.programId, identified.accessToken, signal)).sort((a, b) => b.number - a.number);
-  for (const season of seasons) yield* await listEpisodesForSeason(program, season.id, identified.accessToken, signal);
+  const seasons = (await auth.run(
+    (session, signal) => listSeasons(programId, session.accessToken, signal), signal,
+  )).sort((a, b) => b.number - a.number);
+  for (const season of seasons) {
+    yield* await auth.run(
+      (session, signal) => listEpisodesForSeason(program, season.id, session.accessToken, signal), signal,
+    );
+  }
 }
 
 async function listSeasons(

@@ -164,7 +164,7 @@ Each entry under `providers` is keyed by a provider ID from [Supported sources](
 
 A few provider notes:
 
-- **Prima+** registers its web device as part of login. Leave `deviceId` unset unless you need a specific device. Your other devices are never removed.
+- **Prima+** registers its web device as part of login. Leave `deviceId` unset unless you need a specific device. Your other devices are never removed. If iPrima rejects the account token while listing seasons or episodes, Bohemarr logs in again once and retries the affected request.
 - **Prima+ catalogue.** Bohemarr builds its own index of Prima+ series and films from iPrima's public sitemaps and stores it in the database. The first Prima+ search waits for the sitemaps (a few seconds). The programme names are then read from the pages in the background, one page per second, because iPrima's CDN blocks an address that sends too many requests. The first pass over the roughly 4,100 programmes takes about an hour and a half. Until then, searches match names derived from the page addresses, and releases still carry the real names. After that, only changed programmes are re-read, and the listing is refreshed when it is older than six hours.
 - **SledovaniTV** can reuse an already paired device: `deviceId` is the device ID, `profile` the profile ID and `cookies` the session ID (not a Cookie header). Add `username`/`password` too if Bohemarr should log in again when that session expires.
 - **Voyo** accepts a `votoken` session in `cookies`. Once Voyo refuses it, `username`/`password` are required.
