@@ -285,7 +285,9 @@ The first lookup after a cache miss or expiry still performs upstream discovery;
 
 Newznab advertises a maximum/default page size of five results. Each result resolves live playback metadata; smaller pages keep general catalogue requests within Arr connection timeouts when account sources are enabled. Further results remain available through `offset` pagination.
 
-Sonarr interactive-search timing includes **all enabled interactive indexers**, not only Bohemarr. Other indexers can issue successive localized-title searches with intervals between requests, even when they return no releases. Faster Bohemarr discovery does not remove those waits. Disabling an indexer's interactive search removes its manual-search results too; it is a source-coverage decision, not a cache setting.
+Sonarr interactive-search timing includes **all enabled interactive indexers**, not only Bohemarr. Other indexers can issue successive localized-title searches with intervals between requests, even when they return no releases. Faster Bohemarr discovery does not remove those waits. Disabling an indexer's interactive search removes its manual-search results too; it is a source-coverage decision, not a cache setting. If the indexer comes from Prowlarr **Full Sync**, change its sync profile or switch that Arr application's synchronization to **Add/Remove Only** before making local settings authoritative; otherwise synchronization can overwrite them.
+
+The current deployment excludes Nyaa from **Sonarr interactive searches only**, while keeping its RSS and automatic searches enabled. Sonarr's Prowlarr application uses Add/Remove Only so that local choice survives synchronization. Radarr remains on Full Sync, with Nyaa interactive search unchanged.
 
 ### Queue control
 

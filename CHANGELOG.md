@@ -29,6 +29,13 @@
 - Verified the same Love Island S04E45/S04E48 releases remained accepted by Sonarr at 1080p. A warm direct Bohemarr request took 1.19 seconds; an expired-cache request took 4.99 seconds.
 - The full Sonarr interactive searches still took 6.16 and 8.00 seconds. Prowlarr history showed four Nyaa title variants spaced two seconds apart, returning no results. The five-indexer search is not claimed fixed by Bohemarr caching; other indexers and their search settings were left unchanged.
 
+### Selected Sonarr interactive-search policy
+
+- At the user's selection, disabled Nyaa interactive search in Sonarr only; RSS and automatic search remain enabled. Other Sonarr indexers remain available.
+- Switched Sonarr's Prowlarr application to Add/Remove Only so existing Sonarr indexer settings stay local. Radarr remains on Full Sync and its Nyaa interactive search remains enabled.
+- Ran a normal Prowlarr application/indexer synchronization and confirmed the Sonarr-only exclusion survived. Sonarr reported four active interactive indexers; Prowlarr recorded no Nyaa queries for the subsequent manual searches.
+- The final Love Island S04E48 interactive search completed in 4.67 seconds with an accepted 1080p release. This improves the reported 7–8-second operation but is not an instant-search guarantee; other indexers and expired discovery caches still add latency.
+
 ### One-off deployment data operation
 
 The catalogue matching pass is a completed deployment operation, **not a committed database dump or a new automatic synchronization feature**.
