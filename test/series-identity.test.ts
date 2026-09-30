@@ -75,6 +75,28 @@ test('loadSeriesIdentity tolerates absent optional metadata', async (t: TestCont
   assert.deepEqual(identity, { tvdbId: 1, title: 'Some Show', aliases: [], year: undefined, country: undefined });
 });
 
+test('verified TVmaze names bind a Czech programme to its English TVDB identity', async (t: TestContext) => {
+  t.mock.method(globalThis, 'fetch', async (input: string | URL) => {
+    const url = String(input);
+    if (url.includes('skyhook.sonarr.tv')) return Response.json({ tvdbId: 441247, title: 'Extractors', firstAired: '2023-10-27', originalCountry: 'cze', tmdbId: 215097, tvMazeId: 72176 });
+    if (url.endsWith('/akas')) return Response.json([{ name: 'Extractors' }, { name: 'Extraktoři' }]);
+    return Response.json({ id: 72176, name: 'Extraktoři', externals: { thetvdb: 441247 } });
+  });
+  const identity = await loadSeriesIdentity(441247, new AbortController().signal);
+  const programme = { id: 'https://www.oneplay.cz/porad/9486-extraktori', title: 'Extraktoři', aliases: [], year: 2023, countries: ['Česká republika'] };
+  assert.equal(outcome(selectProgram(identity, [programme])), programme.id);
+  assert.equal(identity.title, 'Extractors');
+  assert.equal(identity.tmdbId, 215097);
+  assert.deepEqual(identity.aliases, ['Extraktoři']);
+});
+
+test('TVmaze aliases cannot attach a different TVDB identity', async (t: TestContext) => {
+  t.mock.method(globalThis, 'fetch', async (input: string | URL) => String(input).includes('skyhook.sonarr.tv')
+    ? Response.json({ tvdbId: 441247, title: 'Extractors', tvMazeId: 72176 })
+    : Response.json({ id: 72176, name: 'Unrelated show', externals: { thetvdb: 999999 } }));
+  await assert.rejects(loadSeriesIdentity(441247, new AbortController().signal), /Mismatched TVmaze/);
+});
+
 test('isSeriesCandidate accepts token-boundary prefixes and rejects substring-inside-word matches', () => {
   assert.ok(isSeriesCandidate('Love Island', loveIslandIdentity));
   assert.ok(isSeriesCandidate('Love Island (Austrálie)', loveIslandIdentity));

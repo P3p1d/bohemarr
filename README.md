@@ -270,7 +270,9 @@ Search and grab from Sonarr or Radarr as usual; downloads appear under **Activit
 2. Run an **interactive search** for one episode and check what comes back.
 3. Monitor the series when you are happy with the results.
 
-Sonarr searches by TVDB ID. For Oneplay and Prima+ (with an account), the first such search binds the TVDB series to the matching program and stores the binding; later searches reuse it. Other sources are matched by title, season/episode or air date.
+Sonarr searches by TVDB ID. For Oneplay and Prima+ (with an account), the first such search binds the TVDB series to the matching program and stores the binding; later searches reuse it. Skyhook supplies the canonical title and linked IDs. When it supplies a TVmaze ID, Bohemarr verifies the TVmaze record's TVDB ID before accepting its local name and alternate names, so an English title such as *Extractors* can match *Extraktoři*. No translation guessing or additional API key is involved; year, country and uniqueness checks still apply.
+
+SQLite's `series_mappings` table relates `(provider, source_id)` to `tvdb_id` and the nullable `tmdb_id`; its JSON payload preserves the canonical title, aliases and verified programme metadata. `tmdb_id` is specifically a **TMDB TV** ID, never a movie ID. Existing databases migrate automatically without reassigning bindings. Other sources are matched by title, season/episode or air date.
 
 ### Queue control
 
@@ -369,7 +371,7 @@ Domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md), architecture decisio
 
 ## Limitations
 
-- **External services.** Protected (Widevine) sources need a key service; by default this is the one operated by the original Media Downloader project (`wv.api.md.sune.app`). TVDB metadata comes from Sonarr's public Skyhook API. If either changes or disappears, the dependent features stop working.
+- **External services.** Protected (Widevine) sources need a key service; by default this is the one operated by the original Media Downloader project (`wv.api.md.sune.app`). TVDB metadata comes from Sonarr's public Skyhook API; linked local titles and aliases come from TVmaze's public API. A failed or mismatched linked TVmaze lookup refuses a new identity lookup rather than persisting incomplete aliases. Existing stored bindings remain usable without those metadata services. If an external service changes or disappears, its dependent features stop working.
 - **Undocumented upstream APIs.** Sources change their sites and APIs without notice; a provider can break until it is updated.
 - **Upstream metadata gaps.** Adaptive-stream sizes are estimates, not the final remuxed file size. When a source cannot expose usable duration/bitrate, byte ranges or file length, size remains unknown (`0` in Newznab); missing language or resolution is omitted rather than invented. Playback inspection adds latency to searches, and only durable metadata is stored—not signed playback URLs or headers.
 - **Verified sources.** Account-based playback has been verified for Oneplay (including a protected episode) and for Prima+ on clear media. JOJ Play, Voyo SK, SledovaniTV and protected Prima+ content have not been verified with an entitled account.

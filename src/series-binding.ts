@@ -37,8 +37,14 @@ export class SeriesBindings {
       );
       UPDATE series_mappings SET payload = json_remove(json_set(payload, '$.program', payload -> '$.source'), '$.source')
         WHERE json_type(payload, '$.source') IS NOT NULL;`);
+    if (!db.prepare('PRAGMA table_info(series_mappings)').all().some(column => column.name === 'tmdb_id')) {
+      db.exec('ALTER TABLE series_mappings ADD COLUMN tmdb_id INTEGER');
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS series_mappings_tmdb ON series_mappings(tmdb_id);
+      UPDATE series_mappings SET tmdb_id = json_extract(payload, '$.identity.tmdbId')
+        WHERE tmdb_id IS NULL AND json_type(payload, '$.identity.tmdbId') = 'integer';`);
     this.selectIdentityByTvdbId = db.prepare('SELECT payload FROM series_mappings WHERE tvdb_id=? LIMIT 1');
-    this.insertBinding = db.prepare('INSERT INTO series_mappings VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING');
+    this.insertBinding = db.prepare('INSERT INTO series_mappings (provider, source_id, tvdb_id, payload, tmdb_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING');
     this.selectBindingByIdentity = db.prepare('SELECT payload FROM series_mappings WHERE provider=? AND tvdb_id=?');
     this.selectBindingByProgram = db.prepare('SELECT payload FROM series_mappings WHERE provider=? AND source_id=?');
   }
@@ -82,7 +88,7 @@ export class SeriesBindings {
     const selection = selectProgram(identity, await provider.seriesCandidates!(identity, signal));
     if ('reason' in selection) return selection.reason;
     const binding: SeriesBinding = { provider: provider.id, program: selection.program, identity };
-    this.insertBinding.run(provider.id, binding.program.id, identity.tvdbId, JSON.stringify(binding));
+    this.insertBinding.run(provider.id, binding.program.id, identity.tvdbId, JSON.stringify(binding), identity.tmdbId ?? null);
     // The constraints refuse either reassignment; the stored row tells which one happened.
     const stored = this.byIdentity(provider.id, identity.tvdbId);
     if (stored?.program.id === binding.program.id) return stored;

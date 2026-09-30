@@ -3,6 +3,8 @@ export type MediaKind = 'tv' | 'movie';
 /** The canonical TVDB record of a series. */
 export interface SeriesIdentity {
   tvdbId: number;
+  /** TMDB television ID, not a movie ID. */
+  tmdbId?: number;
   title: string;
   aliases: string[];
   year?: number;

@@ -171,6 +171,31 @@ interface SkyhookShow {
   firstAired?: unknown;
   originalCountry?: unknown;
   alternativeTitles?: unknown;
+  tmdbId?: unknown;
+  tvMazeId?: unknown;
+}
+
+function positiveId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+async function loadTvmazeNames(id: number, tvdbId: number, signal: AbortSignal): Promise<string[]> {
+  const response = await fetch(`https://api.tvmaze.com/shows/${id}`, { signal });
+  if (!response.ok) throw new Error(`TVmaze lookup for tvdb ${tvdbId} failed with status ${response.status}`);
+  const show = await response.json() as { id?: unknown; name?: unknown; externals?: { thetvdb?: unknown } };
+  if (show.id !== id || show.externals?.thetvdb !== tvdbId) {
+    throw new Error(`Mismatched TVmaze metadata for tvdb ${tvdbId}`);
+  }
+  if (typeof show.name !== 'string' || !show.name.trim()) throw new Error(`TVmaze returned a missing name for tvdb ${tvdbId}`);
+  const aliasesResponse = await fetch(`https://api.tvmaze.com/shows/${id}/akas`, { signal });
+  if (!aliasesResponse.ok) throw new Error(`TVmaze aliases for tvdb ${tvdbId} failed with status ${aliasesResponse.status}`);
+  const akas: unknown = await aliasesResponse.json();
+  if (!Array.isArray(akas)) throw new Error(`TVmaze returned malformed aliases for tvdb ${tvdbId}`);
+  const names = [show.name];
+  for (const aka of akas as { name?: unknown }[]) {
+    if (typeof aka?.name === 'string') names.push(aka.name);
+  }
+  return names;
 }
 
 function parseYear(firstAired: unknown): number | undefined {
@@ -181,8 +206,8 @@ function parseYear(firstAired: unknown): number | undefined {
   return Number.isFinite(year) && year > 0 ? year : undefined;
 }
 
-function parseAliases(alternativeTitles: unknown, title: string): string[] {
-  if (!Array.isArray(alternativeTitles)) return [];
+function parseAliases(alternativeTitles: unknown, title: string, names: readonly string[]): string[] {
+  if (!Array.isArray(alternativeTitles)) alternativeTitles = [];
   const seen = new Set<string>([title.trim().toLowerCase()]);
   const aliases: string[] = [];
   for (const entry of alternativeTitles as SkyhookAlternativeTitle[]) {
@@ -190,6 +215,13 @@ function parseAliases(alternativeTitles: unknown, title: string): string[] {
     if (!alias) continue;
     const key = alias.toLowerCase();
     if (seen.has(key)) continue;
+    seen.add(key);
+    aliases.push(alias);
+  }
+  for (const name of names) {
+    const alias = name.trim();
+    const key = alias.toLowerCase();
+    if (!alias || seen.has(key)) continue;
     seen.add(key);
     aliases.push(alias);
   }
@@ -229,11 +261,14 @@ export async function loadSeriesIdentity(tvdbId: number, signal: AbortSignal): P
     ? data.originalCountry.trim()
     : undefined;
 
-  return {
+  const names = positiveId(data.tvMazeId) ? await loadTvmazeNames(data.tvMazeId, tvdbId, combinedSignal) : [];
+  const identity: SeriesIdentity = {
     tvdbId,
     title,
-    aliases: parseAliases(data.alternativeTitles, title),
+    aliases: parseAliases(data.alternativeTitles, title, names),
     year: parseYear(data.firstAired),
     country,
   };
+  if (positiveId(data.tmdbId)) identity.tmdbId = data.tmdbId;
+  return identity;
 }
