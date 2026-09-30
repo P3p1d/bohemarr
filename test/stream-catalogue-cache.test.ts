@@ -17,6 +17,8 @@ function streamcz(t: TestContext) {
   const categories: Category[] = [];
   let categoriesRequests = 0;
   let programsRequests = 0;
+  let episodeRequests = 0;
+  const episodes = new Map<string, Array<Program & { namePrefix: string }>>();
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
     if (init?.signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
     const url = String(input instanceof Request ? input.url : input);
@@ -33,8 +35,15 @@ function streamcz(t: TestContext) {
       return new Response(`<script>window.APP_SERVER_STATE = foo; data : ${JSON.stringify(state)};</script>`);
     }
     if (url === API_URL && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { variables: { id: string; last?: number } };
+      if (body.variables.last !== undefined) {
+        episodeRequests++;
+        const edges = (episodes.get(body.variables.id) ?? []).map(node => ({ node }));
+        return Response.json({ data: { tagData: { allEpisodesConnection: {
+          pageInfo: { startCursor: null, hasPreviousPage: false }, edges,
+        } } } });
+      }
       programsRequests++;
-      const body = JSON.parse(String(init.body)) as { variables: { id: string } };
       const category = categories.find(c => c.id === body.variables.id);
       const edges = (category?.programs ?? []).map(p => ({ node: { id: p.id, name: p.name, urlName: p.urlName } }));
       return Response.json({
@@ -43,12 +52,88 @@ function streamcz(t: TestContext) {
     }
     throw new Error(`Unexpected request: ${url}`);
   });
-  return { categories, get categoriesRequests() { return categoriesRequests; }, get programsRequests() { return programsRequests; } };
+  return { categories, episodes, get categoriesRequests() { return categoriesRequests; },
+    get programsRequests() { return programsRequests; }, get episodeRequests() { return episodeRequests; } };
 }
 
 async function list(provider: Provider, query: CatalogueQuery, signal = new AbortController().signal) {
   return Array.fromAsync(provider.catalogue.programs(query, signal));
 }
+
+test('different episode searches and a restart reuse the complete Stream episode listing until five minutes', async t => {
+  const site = streamcz(t);
+  site.categories.push({ id: 'shows', name: 'Shows', urlName: 'shows', programs: [
+    { id: 'love', name: 'Love Island', urlName: 'love-island' },
+  ] });
+  site.episodes.set('love', [
+    { id: 'e45', name: 'Episode 45', namePrefix: 'S4:E45', urlName: 'episode-45' },
+    { id: 'e48', name: 'Episode 48', namePrefix: 'S4:E48', urlName: 'episode-48' },
+  ]);
+  using database = new DatabaseSync(':memory:');
+  let now = 0;
+  const timing = { now: () => now };
+  const provider = createStreamCzProvider({}, database, timing)!;
+  const [program] = await list(provider, { q: '', kind: 'tv' });
+  const read = (source: Provider, episode: number) => Array.fromAsync(source.catalogue.releases(
+    program!, { q: '', kind: 'tv', season: 4, episode }, new AbortController().signal));
+  const first = await read(provider, 45);
+  assert.deepEqual(first.map(r => [r.episode, r.url]), [
+    [48, 'https://www.stream.cz/love-island/episode-48'],
+    [45, 'https://www.stream.cz/love-island/episode-45'],
+  ]);
+  site.episodes.get('love')!.push({ id: 'e49', name: 'Episode 49', namePrefix: 'S4:E49', urlName: 'episode-49' });
+  now = 5 * 60 * 1000 - 1;
+  const restarted = createStreamCzProvider({}, database, timing)!;
+  assert.deepEqual(await read(restarted, 48), first);
+  assert.equal(site.episodeRequests, 1, 'different episode and restart must not refetch the same programme');
+  now++;
+  const refreshed = await read(restarted, 49);
+  assert.deepEqual(refreshed.map(r => r.episode), [49, 48, 45]);
+  assert.equal(site.episodeRequests, 2);
+});
+
+test('a partially consumed Stream episode listing never hides later episodes', async t => {
+  const site = streamcz(t);
+  site.categories.push({ id: 'shows', name: 'Shows', urlName: 'shows', programs: [
+    { id: 'love', name: 'Love Island', urlName: 'love-island' },
+  ] });
+  site.episodes.set('love', [
+    { id: 'e45', name: 'Episode 45', namePrefix: 'S4:E45', urlName: 'episode-45' },
+    { id: 'e48', name: 'Episode 48', namePrefix: 'S4:E48', urlName: 'episode-48' },
+  ]);
+  using database = new DatabaseSync(':memory:');
+  const provider = createStreamCzProvider({}, database)!;
+  const [program] = await list(provider, { q: '', kind: 'tv' });
+  const episodes = () => provider.catalogue.releases(program!, { q: '' }, new AbortController().signal);
+  for await (const _release of episodes()) break;
+  assert.deepEqual((await Array.fromAsync(episodes())).map(r => r.episode), [48, 45]);
+  assert.equal(site.episodeRequests, 2);
+});
+
+test('an aborted final episode yield cannot publish a snapshot or cross programme identities', async t => {
+  const site = streamcz(t);
+  site.categories.push({ id: 'shows', name: 'Shows', urlName: 'shows', programs: [
+    { id: 'first', name: 'First Show', urlName: 'first-show' },
+    { id: 'second', name: 'Second Show', urlName: 'second-show' },
+  ] });
+  site.episodes.set('first', [{ id: 'one', name: 'First', namePrefix: 'S4:E45', urlName: 'one' }]);
+  site.episodes.set('second', [{ id: 'two', name: 'Second', namePrefix: 'S4:E48', urlName: 'two' }]);
+  using database = new DatabaseSync(':memory:');
+  const provider = createStreamCzProvider({}, database)!;
+  const [first, second] = await list(provider, { q: '', kind: 'tv' });
+  const controller = new AbortController();
+  await assert.rejects(async () => {
+    for await (const _release of provider.catalogue.releases(first!, { q: '' }, controller.signal)) {
+      controller.abort(new Error('cancel final yield'));
+    }
+  }, /cancel final yield/);
+  const read = (program: NonNullable<typeof first>) => Array.fromAsync(provider.catalogue.releases(
+    program, { q: '' }, new AbortController().signal));
+  assert.deepEqual((await read(first!)).map(r => [r.series, r.episode]), [['First Show', 45]]);
+  assert.deepEqual((await read(second!)).map(r => [r.series, r.episode]), [['Second Show', 48]]);
+  assert.equal(site.episodeRequests, 3);
+  await assert.rejects(Array.fromAsync(provider.catalogue.releases(first!, { q: '' }, controller.signal)), /cancel final yield/);
+});
 
 test('a fresh Stream.cz programme snapshot is served from SQLite without a catalogue request', async t => {
   const site = streamcz(t);

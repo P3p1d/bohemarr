@@ -12,6 +12,8 @@ const BASE_URL = 'https://www.stream.cz/';
 const REGEX_EPISODE = /^S(\d+):E(\d+)$/i;
 /** How long a cached programme listing stays current before the next search re-discovers it. */
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+/** Bound catalogue freshness tightly for newly published episodes. */
+const EPISODE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Boundary helper for navigating the loosely-typed APP_SERVER_STATE / GraphQL JSON blobs without
 // scattering inline `as` shape assumptions through the traversal call sites.
@@ -43,7 +45,8 @@ type CacheScope = 'tv' | 'movie' | 'all';
  *
  * A scope is only ever replaced by a discovery that ran to completion: an aborted or failed walk
  * never publishes a partial snapshot; an expired snapshot is replaced only after a complete walk.
- * Release expansion (episodes, playback) always stays live and is never cached here.
+ * Complete non-empty episode listings have a separate five-minute snapshot per native program ID.
+ * Playback resolution always stays live; neither snapshot contains CDN URLs or credentials.
  */
 class StreamCzCache {
   private readonly selectMeta: StatementSync;
@@ -51,6 +54,8 @@ class StreamCzCache {
   private readonly selectRows: StatementSync;
   private readonly deleteRows: StatementSync;
   private readonly insertRow: StatementSync;
+  private readonly selectEpisodes: StatementSync;
+  private readonly upsertEpisodes: StatementSync;
   private readonly db: DatabaseSync;
   private readonly now: () => number;
 
@@ -61,13 +66,29 @@ class StreamCzCache {
         scope TEXT NOT NULL, program_id TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, url_name TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS stream_catalogue_cache_scope ON stream_catalogue_cache (scope);
-      CREATE TABLE IF NOT EXISTS stream_catalogue_cache_meta (scope TEXT PRIMARY KEY, refreshed_at TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS stream_catalogue_cache_meta (scope TEXT PRIMARY KEY, refreshed_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS stream_episode_cache (
+        program_id TEXT PRIMARY KEY, refreshed_at INTEGER NOT NULL, payload TEXT NOT NULL
+      );`);
     this.selectMeta = db.prepare('SELECT refreshed_at FROM stream_catalogue_cache_meta WHERE scope=?');
     this.upsertMeta = db.prepare(
       'INSERT INTO stream_catalogue_cache_meta (scope, refreshed_at) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET refreshed_at=excluded.refreshed_at');
     this.selectRows = db.prepare('SELECT program_id, title, kind, url_name FROM stream_catalogue_cache WHERE scope=? ORDER BY rowid');
     this.deleteRows = db.prepare('DELETE FROM stream_catalogue_cache WHERE scope=?');
     this.insertRow = db.prepare('INSERT INTO stream_catalogue_cache (scope, program_id, title, kind, url_name) VALUES (?, ?, ?, ?, ?)');
+    this.selectEpisodes = db.prepare('SELECT refreshed_at, payload FROM stream_episode_cache WHERE program_id=?');
+    this.upsertEpisodes = db.prepare(`INSERT INTO stream_episode_cache (program_id, refreshed_at, payload) VALUES (?, ?, ?)
+      ON CONFLICT(program_id) DO UPDATE SET refreshed_at=excluded.refreshed_at, payload=excluded.payload`);
+  }
+
+  episodes(programId: string): CatalogNode[] | undefined {
+    const row = this.selectEpisodes.get(programId);
+    if (!row || this.now() - Number(row.refreshed_at) >= EPISODE_CACHE_TTL_MS) return undefined;
+    return JSON.parse(String(row.payload)) as CatalogNode[];
+  }
+
+  saveEpisodes(programId: string, episodes: readonly CatalogNode[]): void {
+    if (episodes.length) this.upsertEpisodes.run(programId, this.now(), JSON.stringify(episodes));
   }
 
   /** The scope's snapshot, or `undefined` when there is none or it is `CACHE_TTL_MS` or older. */
@@ -176,17 +197,22 @@ async function* paginateConnectionBackward(
     const data = await run(cursor);
     const connection = getPath(data, connectionPath);
     const edges = getPath(connection, 'edges');
+    const hasPreviousPage = getPath(connection, 'pageInfo.hasPreviousPage');
+    if (!Array.isArray(edges) || typeof hasPreviousPage !== 'boolean') {
+      throw new Error('Stream.cz returned an incomplete episode connection');
+    }
     const nodes: CatalogNode[] = [];
-    if (Array.isArray(edges)) {
-      for (const edge of edges) {
-        const node = nodeFrom(getPath(edge, 'node'));
-        if (node) nodes.push(node);
-      }
+    for (const edge of edges) {
+      const node = nodeFrom(getPath(edge, 'node'));
+      if (!node) throw new Error('Stream.cz returned an incomplete episode');
+      nodes.push(node);
     }
     for (let i = nodes.length - 1; i >= 0; i--) yield nodes[i]!;
-    const hasPreviousPage = getPath(connection, 'pageInfo.hasPreviousPage');
+    if (!hasPreviousPage) return;
     const startCursor = getPath(connection, 'pageInfo.startCursor');
-    if (hasPreviousPage !== true || typeof startCursor !== 'string') return;
+    if (typeof startCursor !== 'string' || !startCursor || startCursor === cursor) {
+      throw new Error('Stream.cz returned an invalid episode cursor');
+    }
     cursor = startCursor;
   }
 }
@@ -311,14 +337,30 @@ async function* streamCzPrograms(query: CatalogueQuery, signal: AbortSignal, cac
   cache.write(scope, discovered);
 }
 
-async function* streamCzReleases(program: StreamCzProgram, signal: AbortSignal): AsyncGenerator<Release> {
-  for await (const episode of episodesOf(program.id, signal)) yield buildRelease(program, episode);
+async function* streamCzReleases(program: StreamCzProgram, signal: AbortSignal, cache: StreamCzCache): AsyncGenerator<Release> {
+  signal.throwIfAborted();
+  const cached = cache.episodes(program.id);
+  if (cached) {
+    for (const episode of cached) {
+      signal.throwIfAborted();
+      yield buildRelease(program, episode);
+    }
+    return;
+  }
+  const discovered: CatalogNode[] = [];
+  for await (const episode of episodesOf(program.id, signal)) {
+    signal.throwIfAborted();
+    discovered.push(episode);
+    yield buildRelease(program, episode);
+  }
+  signal.throwIfAborted();
+  cache.saveEpisodes(program.id, discovered);
 }
 
 function streamCzCatalogue(cache: StreamCzCache): Catalogue<StreamCzProgram> {
   return {
     programs: (query, signal) => streamCzPrograms(query, signal, cache),
-    releases: (program, _query, signal) => streamCzReleases(program, signal),
+    releases: (program, _query, signal) => streamCzReleases(program, signal, cache),
   };
 }
 

@@ -279,10 +279,13 @@ Series discovery also reuses SQLite snapshots for up to **six hours**, including
 
 - `series_release_cache` stores successful exact season/episode results for verified Oneplay and Prima+ bindings. Empty results are not cached, so newly available episodes are checked again. Browsing and air-date searches still list episodes upstream.
 - `stream_catalogue_cache` and `stream_catalogue_cache_meta` store complete Stream.cz programme listings separately for TV, movies and unrestricted browsing. Failed, aborted or partially consumed listings never publish a snapshot.
+- `stream_episode_cache` reuses complete, non-empty Stream.cz episode listings for **five minutes**, across different requested episodes and repeated programme appearances. Partial listings and aborted searches never publish a snapshot. Newly published episodes can take up to five minutes to appear; the first search after expiry fetches the listing again.
 
 The first lookup after a cache miss or expiry still performs upstream discovery; programme listings can lag changes by six hours. The one-off `catalogue_tmdb_mappings` audit is not treated as proof that an unmatched series is unavailable. Only durable programme/episode identities are cached here: playback URLs, credentials, current quality and size remain live, and downloads always resolve playback again.
 
 Newznab advertises a maximum/default page size of five results. Each result resolves live playback metadata; smaller pages keep general catalogue requests within Arr connection timeouts when account sources are enabled. Further results remain available through `offset` pagination.
+
+Sonarr interactive-search timing includes **all enabled interactive indexers**, not only Bohemarr. Other indexers can issue successive localized-title searches with intervals between requests, even when they return no releases. Faster Bohemarr discovery does not remove those waits. Disabling an indexer's interactive search removes its manual-search results too; it is a source-coverage decision, not a cache setting.
 
 ### Queue control
 

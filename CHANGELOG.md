@@ -21,6 +21,14 @@
 - The actual Newznab service returned the correct 1080p release in 433–653 ms across three warm searches. Sonarr accepted it without rejection, but its full search operation still took 4–6 seconds; those timings are not presented as sub-second Sonarr searches.
 - Type checking and build passed; all 124 tests passed in Docker, including cache expiry, persistence, query isolation, cancellation and incomplete-discovery regressions.
 
+### Love Island interactive-search diagnosis
+
+- Found Stream.cz's broad title fallback expanding unrelated programmes such as *Mazlové* (971 episodes), including repeated appearances of the same programme. The existing programme cache did not cache episode listings.
+- Persist complete, non-empty Stream.cz episode listings in `stream_episode_cache` for five minutes, sharing a native programme's listing across requested episodes and repeated appearances without changing title matching or provider context. Playback stays live. First lookups and expired snapshots still scan upstream; newly published episodes can lag by five minutes.
+- Guard cancellation, partial consumption and pagination completeness before publishing an episode snapshot. All 127 tests passed in Docker; type checking and build passed.
+- Verified the same Love Island S04E45/S04E48 releases remained accepted by Sonarr at 1080p. A warm direct Bohemarr request took 1.19 seconds; an expired-cache request took 4.99 seconds.
+- The full Sonarr interactive searches still took 6.16 and 8.00 seconds. Prowlarr history showed four Nyaa title variants spaced two seconds apart, returning no results. The five-indexer search is not claimed fixed by Bohemarr caching; other indexers and their search settings were left unchanged.
+
 ### One-off deployment data operation
 
 The catalogue matching pass is a completed deployment operation, **not a committed database dump or a new automatic synchronization feature**.
