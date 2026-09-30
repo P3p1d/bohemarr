@@ -33,6 +33,13 @@ The catalogue matching pass is a completed deployment operation, **not a committ
 - Left 12,251 entries without a verified relation: 5,660 lack a source production year; 4,950 have no exact title-and-year match; 1,491 fail the verified TV title/year/country criteria; 71 have ambiguous identities; 38 have conflicting source metadata; 21 have external metadata lookup/verification errors; and 20 lack a source country.
 - Created a private pre-operation SQLite backup. Database snapshots, account credentials and temporary collectors are not committed to the repository.
 
+### Archive deployment cutover
+
+- Retired czarr as an active archive indexer and download client in Sonarr and Radarr. Both Bohemarr indexers explicitly select their Bohemarr download client.
+- Stopped czarr and the unused legacy Media Monitor service after confirming empty czarr queues, no configured Media Monitor monitors and no active legacy work. Preserved their containers, configuration, databases and downloaded files.
+- Disabled Docker restart for both retired services and placed their Compose services behind an explicit `retired` profile, excluding them from default startup. Torrent/Usenet services and their Arr configuration were left unchanged.
+- Verified Bohemarr's download-client connection, Sonarr's accepted Extractors S01E01 release, and Radarr's accepted Anděl Páně (2005) releases after cutover.
+
 ### Verification and limitations
 
 - Type checking and build passed for the archive-search changes; all 105 tests passed in Docker with the media tools available.
