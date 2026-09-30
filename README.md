@@ -22,6 +22,7 @@ flowchart LR
 
 ## Contents
 
+- [Changelog](CHANGELOG.md)
 - [Features](#features)
 - [Supported sources](#supported-sources)
 - [Requirements](#requirements)
