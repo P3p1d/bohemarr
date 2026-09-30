@@ -130,7 +130,8 @@ export class Queue {
     }
     if (deleteFiles) {
       const expected = resolve(this.config.downloadsDir, job.category, job.id);
-      if (job.storage !== resolve(expected, sanitizeFilename(releaseTitle(job.release)))) throw new Error('Refusing to remove a directory outside this job');
+      const child = relative(expected, job.storage);
+      if (child.startsWith(`..${sep}`) || child === '..' || isAbsolute(child)) throw new Error('Refusing to remove a directory outside this job');
       await rm(expected, { recursive: true, force: true });
     }
     this.store.removeJob(id);

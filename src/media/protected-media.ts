@@ -32,7 +32,7 @@ function concatListEntry(path: string): string {
 }
 
 /** Losslessly concatenates same-codec ordered fragments (one per DASH Period) via ffmpeg's concat demuxer, preserving timestamps/audio without re-encoding. */
-async function concatOrdered(config: Config, paths: string[], listPath: string, outputPath: string, signal: AbortSignal): Promise<string> {
+export async function concatOrdered(config: Config, paths: string[], listPath: string, outputPath: string, signal: AbortSignal): Promise<string> {
   if (paths.length === 1) return paths[0]!;
   await writeFile(listPath, paths.map(concatListEntry).join(''));
   await runProcess(config.ffmpeg, [
@@ -43,7 +43,7 @@ async function concatOrdered(config: Config, paths: string[], listPath: string, 
 
 async function resolvePeriods(source: MediaSource, signal: AbortSignal): Promise<Period[]> {
   if (source.type === 'hls') {
-    const selection = await resolveHlsTracks(source.url, source.headers, source.height, signal);
+    const selection = await resolveHlsTracks(source.url, source.headers, source.height, source.audioLanguage, signal);
     if (selection.live) throw new Error('Live HLS streams are not supported for download');
     return [{ video: selection.video, audio: selection.audio }];
   }
@@ -53,7 +53,7 @@ async function resolvePeriods(source: MediaSource, signal: AbortSignal): Promise
   const manifestText = await response.text();
   const manifest = parseManifest(manifestText, response.url);
   if (manifest.live) throw new Error('Live DASH streams are not supported for download');
-  const selections = selectVideoAndAudio(manifest, source.height);
+  const selections = selectVideoAndAudio(manifest, source.height, source.audioLanguage);
   return selections.map(({ video, audio }) => ({ video, audio, durationSeconds: video.durationSeconds || undefined }));
 }
 

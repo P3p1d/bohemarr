@@ -33,6 +33,20 @@ export function episodeAirDate(release: Release): string | undefined {
   }
 }
 
+const LANGUAGE_CODES: Record<string, string> = {
+  cs: 'CZ', ces: 'CZ', cze: 'CZ', cz: 'CZ',
+  sk: 'SK', slk: 'SK', slo: 'SK',
+};
+
+/** Normalizes a known audio/subtitle language code to its release-title form; never invents one. */
+export function normalizeLanguage(code: string | undefined): string | undefined {
+  const language = code?.trim().toLowerCase();
+  if (!language) return undefined;
+  const separator = language.search(/[-_]/);
+  const base = separator < 0 ? language : language.slice(0, separator);
+  return LANGUAGE_CODES[base] ?? base.toUpperCase();
+}
+
 export function releaseTitle(release: Release): string {
   const name = release.kind === 'tv' ? release.series || release.title : release.title;
   const airDate = episodeAirDate(release);
@@ -41,8 +55,10 @@ export function releaseTitle(release: Release): string {
     : airDate ? ` ${airDate.replaceAll('-', '.')}`
     : release.kind === 'tv' && release.episode !== undefined ? ` - ${String(release.episode).padStart(3, '0')}` : '';
   const year = !episode && release.year ? ` ${release.year}` : '';
-  const quality = release.height ? ` ${release.height}p` : '';
-  return `${name}${episode}${year}${quality} WEB-DL-${release.provider}`;
+  const audioLanguage = normalizeLanguage(release.language);
+  const language = audioLanguage ? ` (${audioLanguage})` : '';
+  const quality = release.height ? `[${release.height}p]` : '';
+  return `${name}${episode}${year}${language}[WEB-DL]${quality}`;
 }
 
 export function sanitizeFilename(title: string): string {

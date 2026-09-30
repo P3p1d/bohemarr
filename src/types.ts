@@ -53,6 +53,7 @@ export interface Release {
   year?: number;
   publishedAt?: string;
   size?: number;
+  sizeEstimated?: boolean;
   height?: number;
   language?: string;
   data?: Record<string, unknown>;
@@ -72,6 +73,7 @@ export interface MediaSource {
   height?: number;
   bandwidth?: number;
   audioUrl?: string;
+  audioLanguage?: string;
   subtitles?: Array<{ url: string; language: string; headers?: Record<string, string> }>;
   drm?: License;
 }

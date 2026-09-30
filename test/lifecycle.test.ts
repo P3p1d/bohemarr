@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempDisposable, writeFile, access } from 'node:fs/promises';
+import { mkdtempDisposable, mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,7 +24,7 @@ async function fixture() {
     categories: ['tv', 'movies'], providers: {},
   };
   const store = new Store(join(dir.path, 'state.sqlite'));
-  const provider: Provider = { id: 'direct', name: 'Direct', catalogue: fakeCatalogue(() => [release]), resolve: async () => [{ url: release.url, type: 'file' }] };
+  const provider: Provider = { id: 'direct', name: 'Direct', catalogue: fakeCatalogue(() => [release]), resolve: async () => [{ url: release.url, type: 'file', height: 1080, audioLanguage: 'cs' }] };
   const providers = new Map([[provider.id, provider]]);
   return { dir, root: dir.path, config, store, providers };
 }
@@ -50,6 +50,29 @@ test('pause wins against a late downloader completion and cancellation removes f
   await queue.remove(job.id, true);
   assert.equal(f.store.job(job.id), undefined);
   await assert.rejects(access(job.storage), { code: 'ENOENT' });
+});
+
+test('removal accepts a persisted old release folder but never deletes a sibling job', async () => {
+  const f = await fixture();
+  await using dir = f.dir;
+  using store = f.store;
+  f.store.paused = true;
+  await using queue = new Queue(f.store, f.config, f.providers, async () => { throw new Error('must remain paused'); });
+  const oldJob = queue.add(release, 'tv');
+  const oldFolder = join(f.config.downloadsDir, 'tv', oldJob.id, 'Example S01E01 WEB-DL-direct');
+  await mkdir(oldFolder, { recursive: true });
+  await writeFile(join(oldFolder, 'episode.mp4'), 'previous release');
+  f.store.updateJob(oldJob.id, { storage: oldFolder });
+  await queue.remove(oldJob.id, true);
+  await assert.rejects(access(oldFolder), { code: 'ENOENT' });
+
+  const unsafeJob = queue.add(release, 'tv');
+  const sibling = join(f.config.downloadsDir, 'tv', `${unsafeJob.id}-sibling`, 'keep');
+  await mkdir(sibling, { recursive: true });
+  await writeFile(join(sibling, 'episode.mp4'), 'keep this job');
+  f.store.updateJob(unsafeJob.id, { storage: sibling });
+  await assert.rejects(queue.remove(unsafeJob.id, true), /outside this job/);
+  assert.equal(await readFile(join(sibling, 'episode.mp4'), 'utf8'), 'keep this job');
 });
 
 test('restart recovers interrupted work without losing per-job pause or global pause', async () => {
@@ -88,7 +111,8 @@ test('authenticated task descriptor identity cannot be changed to another persis
   assert.throws(() => indexer.parseTaskDescriptor('<nzb><file/></nzb>'), /not a Usenet client/);
 });
 
-test('Sonarr daily queries select the air date without inventing a season-zero episode', async () => {
+test('Sonarr daily queries select the air date without inventing a season-zero episode', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('Source unavailable', { status: 404 }));
   const f = await fixture();
   await using dir = f.dir;
   using store = f.store;
@@ -98,7 +122,7 @@ test('Sonarr daily queries select the air date without inventing a season-zero e
   provider.catalogue = fakeCatalogue(() => [today, yesterday]);
   const indexer = new Indexer(f.config, f.store, f.providers, new SeriesBindings(f.store.database));
   const feed = await indexer.search({ t: 'tvsearch', q: 'Example', season: '2026', ep: '09/28' }, new AbortController().signal);
-  assert.match(feed, /Example 2026\.09\.28 WEB-DL-direct/);
+  assert.match(feed, /<guid isPermaLink="false">daily<\/guid>/);
   assert.doesNotMatch(feed, /2026\.09\.27|S00E00/);
   assert.equal(f.store.release('yesterday'), undefined);
   await assert.rejects(indexer.search({ t: 'tvsearch', season: '2026', ep: '02/30' }, new AbortController().signal), /Invalid daily/);
@@ -110,16 +134,20 @@ test('movie task names use the movie title rather than their source collection',
   using store = f.store;
   f.store.saveReleases([{ ...release, id: 'movie', kind: 'movie', title: 'Actual Film', series: 'Film Collection', season: undefined, episode: undefined, year: 2008 }]);
   const indexer = new Indexer(f.config, f.store, f.providers, new SeriesBindings(f.store.database));
-  assert.equal(indexer.taskDescriptor('movie').name, 'Actual Film 2008 WEB-DL-direct.nzb');
+  const name = indexer.taskDescriptor('movie').name;
+  assert.match(name, /^Actual Film 2008\b/);
+  assert.doesNotMatch(name, /Film Collection/);
 });
 
-test('Radarr title-and-year queries distinguish films with the same title', async () => {
+test('Radarr title-and-year queries distinguish films with the same title', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('Source unavailable', { status: 404 }));
   const f = await fixture();
   await using dir = f.dir;
   using store = f.store;
   const movie: Release = { id: 'original-film', provider: 'direct', kind: 'movie', title: 'Example Film', year: 2008, url: 'https://example.test/original.mp4' };
   const remake: Release = { ...movie, id: 'remade-film', year: 2024, url: 'https://example.test/remake.mp4' };
   const providers = createProviders({ ...f.config, providers: { direct: { enabled: true, catalog: [movie, remake] } } }, f.store.database);
+  t.mock.method(providers.get('direct')!, 'resolve', async (item: Release) => [{ url: item.url, type: 'file', height: 1080, audioLanguage: 'cs' }]);
   const indexer = new Indexer(f.config, f.store, new Map([['direct', providers.get('direct')!]]), new SeriesBindings(f.store.database));
   const xml = await indexer.search({ t: 'search', cat: '2000', q: 'Example Film 2008' }, new AbortController().signal);
   assert.match(xml, /<comments>https:\/\/example\.test\/original\.mp4<\/comments>/);

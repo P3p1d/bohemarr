@@ -45,6 +45,7 @@ flowchart LR
 - **SABnzbd-compatible download client** with queue, history, pause/resume (global and per job), retry, and removal with optional file deletion.
 - **Durable queue in SQLite.** Interrupted downloads return to the queue after a restart and resume from validated checkpoints where the source allows it.
 - **HTTP, HLS and DASH downloads**, remuxed with FFmpeg and validated with ffprobe before completion is reported.
+- **Actual release quality and size.** Search results inspect the returned page's playback sources and use names such as `Ano, šéfe! S10E06 (CZ)[WEB-DL][1080p]`. Search and download choose the highest available resolution, then bandwidth, and prefer Czech audio. Direct-file lengths and complete byte ranges give exact sizes; adaptive streams use a labelled video-plus-audio bitrate/duration estimate without requesting every segment.
 - **Widevine-protected sources** are decrypted with Bento4 `mp4decrypt` (see [Limitations](#limitations) for the external key service this needs).
 - **Account sessions**: logins are shared between concurrent downloads, renewed before they expire, and replaced exactly once when a service refuses them.
 - **Single Docker image** with Node.js 26, a pinned static FFmpeg 9 and Bento4, running as an unprivileged user.
@@ -368,7 +369,7 @@ Domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md), architecture decisio
 
 - **External services.** Protected (Widevine) sources need a key service; by default this is the one operated by the original Media Downloader project (`wv.api.md.sune.app`). TVDB metadata comes from Sonarr's public Skyhook API. If either changes or disappears, the dependent features stop working.
 - **Undocumented upstream APIs.** Sources change their sites and APIs without notice; a provider can break until it is updated.
-- **No resolution or size metadata** from most sources, so Sonarr often parses releases as `WEBDL-480p` with size 0.
+- **Upstream metadata gaps.** Adaptive-stream sizes are estimates, not the final remuxed file size. When a source cannot expose usable duration/bitrate, byte ranges or file length, size remains unknown (`0` in Newznab); missing language or resolution is omitted rather than invented. Playback inspection adds latency to searches, and only durable metadata is stored—not signed playback URLs or headers.
 - **Verified sources.** Account-based playback has been verified for Oneplay (including a protected episode) and for Prima+ on clear media. JOJ Play, Voyo SK, SledovaniTV and protected Prima+ content have not been verified with an entitled account.
 - No web UI; operation is through the *arr applications and the API.
 

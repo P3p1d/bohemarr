@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
 import { Store } from './store.ts';
-import { releaseTitle } from './providers/common.ts';
+import { releaseTitle, normalizeLanguage, sanitizeFilename } from './providers/common.ts';
+import { inspectMediaSources } from './media/metadata.ts';
 import type { SeriesBindings } from './series-binding.ts';
 import type { Config, Provider, Release, SearchQuery } from './types.ts';
 
@@ -76,10 +77,32 @@ export class Indexer {
     // Release ids are scoped by provider, and each provider's page is already deduplicated.
     const all = results.flatMap(result => result.status === 'fulfilled' ? result.value.releases : []);
     all.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '') || a.id.localeCompare(b.id));
-    this.store.saveReleases(all);
     const page = all.slice(offset, offset + limit);
+    // Provider pages and manifests are inspected sequentially to avoid bursts at their CDNs.
+    for (const release of page) await this.enrich(release, signal);
+    signal.throwIfAborted();
+    this.store.saveReleases(page);
     const items = page.map(release => this.item(release)).join('');
     return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel><title>Bohemarr</title><description>Source media download tasks</description><link>${xml(this.config.publicUrl)}</link><newznab:response offset="${offset}" total="${all.length}"/>${items}</channel></rss>`;
+  }
+
+  /** Inspects current source variants; durable release URLs can acquire better renditions later. */
+  private async enrich(release: Release, signal: AbortSignal): Promise<void> {
+    const provider = this.providers.get(release.provider);
+    if (!provider) return;
+    try {
+      const sources = await provider.resolve(release, signal);
+      signal.throwIfAborted();
+      if (!sources.length) return;
+      const metadata = await inspectMediaSources(this.config, sources, signal);
+      release.height = metadata.height;
+      release.size = metadata.size;
+      release.sizeEstimated = metadata.sizeEstimated;
+      release.language = normalizeLanguage(metadata.language);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      console.error(`Media metadata inspection failed for ${release.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private item(release: Release): string {
@@ -87,7 +110,8 @@ export class Indexer {
     const category = release.kind === 'movie' ? 2000 : 5000;
     const date = new Date(release.publishedAt || 0);
     const size = Number.isFinite(release.size) && release.size! >= 0 ? Math.floor(release.size!) : 0;
-    return `<item><title>${xml(releaseTitle(release))}</title><guid isPermaLink="false">${xml(release.id)}</guid><link>${xml(url)}</link><comments>${xml(release.url)}</comments><pubDate>${xml(Number.isFinite(date.getTime()) ? date.toUTCString() : new Date(0).toUTCString())}</pubDate><category>${category}</category><description>${xml(release.title)}</description><enclosure url="${xml(url)}" length="${size}" type="application/x-nzb"/><newznab:attr name="category" value="${category}"/><newznab:attr name="size" value="${size}"/>${release.tvdbId === undefined ? '' : `<newznab:attr name="tvdbid" value="${release.tvdbId}"/>`}${release.season === undefined ? '' : `<newznab:attr name="season" value="${release.season}"/>`}${release.episode === undefined ? '' : `<newznab:attr name="episode" value="${release.episode}"/>`}</item>`;
+    const description = release.sizeEstimated ? `${release.title} (estimated size)` : release.title;
+    return `<item><title>${xml(releaseTitle(release))}</title><guid isPermaLink="false">${xml(release.id)}</guid><link>${xml(url)}</link><comments>${xml(release.url)}</comments><pubDate>${xml(Number.isFinite(date.getTime()) ? date.toUTCString() : new Date(0).toUTCString())}</pubDate><category>${category}</category><description>${xml(description)}</description><enclosure url="${xml(url)}" length="${size}" type="application/x-nzb"/><newznab:attr name="category" value="${category}"/><newznab:attr name="size" value="${size}"/>${release.tvdbId === undefined ? '' : `<newznab:attr name="tvdbid" value="${release.tvdbId}"/>`}${release.season === undefined ? '' : `<newznab:attr name="season" value="${release.season}"/>`}${release.episode === undefined ? '' : `<newznab:attr name="episode" value="${release.episode}"/>`}</item>`;
   }
 
   /** The signed Task descriptor (an NZB envelope) for a Release found by an earlier search. */
@@ -97,7 +121,7 @@ export class Indexer {
     const signature = createHmac('sha256', this.config.apiKey).update(id).digest('hex');
     const name = releaseTitle(release);
     return {
-      name: `${name.replace(/[^\p{L}\p{N} ._-]/gu, '_')}.nzb`,
+      name: `${sanitizeFilename(name)}.nzb`,
       content: `<?xml version="1.0" encoding="UTF-8"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><head><meta type="bohemarr-id">${xml(id)}</meta><meta type="bohemarr-signature">${signature}</meta></head><file poster="bohemarr" date="0" subject="${xml(name)}"><groups><group>bohemarr</group></groups><segments><segment bytes="0" number="1">${xml(id)}@bohemarr</segment></segments></file></nzb>`,
     };
   }

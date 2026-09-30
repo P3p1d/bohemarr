@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { normalizeLanguage } from '../providers/common.ts';
 import type { MediaSegment } from '../types.ts';
 
 export interface ProtectedTrack {
@@ -272,9 +273,14 @@ export function selectVideoAndAudio(
 function selectAudio(
   representations: DashRepresentation[], targetLanguage: string | undefined,
 ): DashRepresentation | undefined {
-  const audios = representations.filter(r => r.kind === 'audio');
-  if (!audios.length) return undefined;
-  const languageMatches = targetLanguage ? audios.filter(a => a.language === targetLanguage) : [];
-  const pool = languageMatches.length ? languageMatches : audios;
-  return pool.reduce((best, current) => (current.bandwidth > best.bandwidth ? current : best));
+  const language = normalizeLanguage(targetLanguage);
+  let best: DashRepresentation | undefined;
+  let preferred: DashRepresentation | undefined;
+  for (const representation of representations) {
+    if (representation.kind !== 'audio') continue;
+    if (!best || representation.bandwidth > best.bandwidth) best = representation;
+    if (language && normalizeLanguage(representation.language) === language
+      && (!preferred || representation.bandwidth > preferred.bandwidth)) preferred = representation;
+  }
+  return preferred ?? best;
 }

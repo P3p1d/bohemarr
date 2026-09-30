@@ -1,20 +1,11 @@
-import type { Config, DownloadMedia, MediaSource } from '../types.ts';
+import type { Config, DownloadMedia } from '../types.ts';
 import { downloadDirectFile } from './http-download.ts';
 import { downloadRemux } from './remux.ts';
 import { downloadProtectedMedia } from './protected-media.ts';
 import { wvApiCdm } from './wv-api.ts';
+import { inspectMediaSources } from './metadata.ts';
 
 import { sanitizeFilename } from '../providers/common.ts';
-
-/** Picks the highest-quality alternative among `sources` (by height, then bandwidth). */
-function selectBestSource(sources: MediaSource[]): MediaSource {
-  return sources.reduce((best, current) => {
-    const bestHeight = best.height ?? 0;
-    const currentHeight = current.height ?? 0;
-    if (currentHeight !== bestHeight) return currentHeight > bestHeight ? current : best;
-    return (current.bandwidth ?? 0) > (best.bandwidth ?? 0) ? current : best;
-  });
-}
 
 function extensionFromUrl(url: string): string {
   const match = /\.([a-z0-9]{2,4})(?:$|\?)/i.exec(new URL(url).pathname);
@@ -22,16 +13,18 @@ function extensionFromUrl(url: string): string {
 }
 
 /**
- * Builds the `DownloadMedia` function: dispatches each source to the direct-file streamer, the
- * clear HLS/DASH ffmpeg remuxer, or the encrypted HLS/DASH Widevine pipeline (manifest parse ->
- * WV license exchange -> mp4decrypt -> ffmpeg mux), always returning a path inside `outputDir`.
+ * Builds the `DownloadMedia` function: inspects every alternative source's actual (never merely
+ * hinted) quality via `inspectMediaSources`, picks the best one, and dispatches it to the
+ * direct-file streamer, the clear HLS/DASH ffmpeg remuxer, or the encrypted HLS/DASH Widevine
+ * pipeline (manifest parse -> WV license exchange -> mp4decrypt -> ffmpeg mux), always returning a
+ * path inside `outputDir`.
  */
 export function createMediaDownloader(config: Config): DownloadMedia {
   const cdm = wvApiCdm(config);
   return async (sources, outputDir, title, signal, onProgress) => {
     signal.throwIfAborted();
     if (!sources.length) throw new Error('No media sources provided');
-    const source = selectBestSource(sources);
+    const { source } = await inspectMediaSources(config, sources, signal);
     const safeTitle = sanitizeFilename(title);
 
     if (source.type === 'file' && (source.audioUrl || source.subtitles?.length) && !source.drm) {

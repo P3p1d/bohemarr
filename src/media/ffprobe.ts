@@ -10,7 +10,7 @@ export function headerArgs(headers?: Record<string, string>): string[] {
   return ['-headers', block];
 }
 
-export interface ProbedStream { index: number; codec_type: string; height?: number; bit_rate?: string; }
+export interface ProbedStream { index: number; codec_type: string; height?: number; bit_rate?: string; tags?: { language?: string }; }
 export interface MediaProbe { streams: ProbedStream[]; duration?: number; size?: number; }
 
 export async function probeMedia(
@@ -18,7 +18,7 @@ export async function probeMedia(
 ): Promise<MediaProbe> {
   const stdout = await runProcess(config.ffprobe, [
     ...headerArgs(headers), '-v', 'error', '-show_entries',
-    'format=duration,size:stream=index,codec_type,height,bit_rate', '-of', 'json', url,
+    'format=duration,size:stream=index,codec_type,height,bit_rate:stream_tags=language', '-of', 'json', url,
   ], signal);
   const parsed = JSON.parse(stdout) as { streams?: ProbedStream[]; format?: { duration?: string; size?: string } };
   if (!parsed.streams?.length) throw new Error('Media contains no streams');
