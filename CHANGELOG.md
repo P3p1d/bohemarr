@@ -12,6 +12,15 @@
 - Persist the nullable TMDB TV ID in `series_mappings`, migrating existing databases without reassigning stored bindings. Movie and TV TMDB IDs remain distinct namespaces.
 - Limit Newznab pages to five results, retaining `offset` pagination, to bound live playback-metadata inspection for account-enabled catalogues.
 
+### SQLite-first series discovery
+
+- Cache successful exact-episode lookups for verified Oneplay and Prima+ series bindings in SQLite for six hours, preserving canonical titles, provider ownership and paging. Empty results are not cached.
+- Persist complete Stream.cz programme snapshots per TV/movie/unrestricted scope for six hours. Interrupted or malformed discovery cannot publish a partial or false-empty snapshot; cached programme ordering and source URLs are preserved.
+- Reuse both caches after restart. Playback URLs, credentials, video quality and size remain live; downloads still resolve the source independently.
+- Verified cached Extractors discovery at 6 ms on Oneplay and 18 ms on Stream.cz, compared with 2.56 s and 4.08 s respectively before the change. Catalogue HTTP calls to both sources dropped to zero on a cache hit.
+- The actual Newznab service returned the correct 1080p release in 433–653 ms across three warm searches. Sonarr accepted it without rejection, but its full search operation still took 4–6 seconds; those timings are not presented as sub-second Sonarr searches.
+- Type checking and build passed; all 124 tests passed in Docker, including cache expiry, persistence, query isolation, cancellation and incomplete-discovery regressions.
+
 ### One-off deployment data operation
 
 The catalogue matching pass is a completed deployment operation, **not a committed database dump or a new automatic synchronization feature**.

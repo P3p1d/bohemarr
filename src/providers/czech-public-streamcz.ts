@@ -1,4 +1,5 @@
 import { load as loadHtml } from 'cheerio';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { Catalogue, CatalogueQuery, MediaKind, MediaSource, Provider, ProviderConfig, Release } from '../types.ts';
 import { fetchJson, fetchText, normalize, releaseId } from './common.ts';
 
@@ -9,6 +10,8 @@ const REFERER = 'https://www.stream.cz/';
 const CATEGORIES_URL = 'https://www.stream.cz/videa/filmy';
 const BASE_URL = 'https://www.stream.cz/';
 const REGEX_EPISODE = /^S(\d+):E(\d+)$/i;
+/** How long a cached programme listing stays current before the next search re-discovers it. */
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 // Boundary helper for navigating the loosely-typed APP_SERVER_STATE / GraphQL JSON blobs without
 // scattering inline `as` shape assumptions through the traversal call sites.
@@ -25,6 +28,77 @@ interface CatalogNode { id: string; name: string; namePrefix: string | null; url
 
 /** A Stream.cz tag that lists episodes (a show or, for the `filmy` channel, individual movies). */
 interface StreamCzProgram { id: string; title: string; kind: MediaKind; urlName: string }
+
+/** Clock used by the cache; tests replace it to avoid real time. */
+export interface StreamCzCacheTiming {
+  now?: () => number;
+}
+
+/** The `query.kind` scopes a programme discovery walks and caches independently. */
+type CacheScope = 'tv' | 'movie' | 'all';
+
+/**
+ * A persistent SQLite snapshot of Stream.cz's programme discovery (categories -> programs),
+ * kept per `query.kind` scope so a warm search never re-walks the GraphQL catalogue tree.
+ *
+ * A scope is only ever replaced by a discovery that ran to completion: an aborted or failed walk
+ * never publishes a partial snapshot; an expired snapshot is replaced only after a complete walk.
+ * Release expansion (episodes, playback) always stays live and is never cached here.
+ */
+class StreamCzCache {
+  private readonly selectMeta: StatementSync;
+  private readonly upsertMeta: StatementSync;
+  private readonly selectRows: StatementSync;
+  private readonly deleteRows: StatementSync;
+  private readonly insertRow: StatementSync;
+  private readonly db: DatabaseSync;
+  private readonly now: () => number;
+
+  constructor(db: DatabaseSync, options: StreamCzCacheTiming = {}) {
+    this.db = db;
+    this.now = options.now ?? Date.now;
+    db.exec(`CREATE TABLE IF NOT EXISTS stream_catalogue_cache (
+        scope TEXT NOT NULL, program_id TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, url_name TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS stream_catalogue_cache_scope ON stream_catalogue_cache (scope);
+      CREATE TABLE IF NOT EXISTS stream_catalogue_cache_meta (scope TEXT PRIMARY KEY, refreshed_at TEXT NOT NULL);`);
+    this.selectMeta = db.prepare('SELECT refreshed_at FROM stream_catalogue_cache_meta WHERE scope=?');
+    this.upsertMeta = db.prepare(
+      'INSERT INTO stream_catalogue_cache_meta (scope, refreshed_at) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET refreshed_at=excluded.refreshed_at');
+    this.selectRows = db.prepare('SELECT program_id, title, kind, url_name FROM stream_catalogue_cache WHERE scope=? ORDER BY rowid');
+    this.deleteRows = db.prepare('DELETE FROM stream_catalogue_cache WHERE scope=?');
+    this.insertRow = db.prepare('INSERT INTO stream_catalogue_cache (scope, program_id, title, kind, url_name) VALUES (?, ?, ?, ?, ?)');
+  }
+
+  /** The scope's snapshot, or `undefined` when there is none or it is `CACHE_TTL_MS` or older. */
+  read(scope: CacheScope): StreamCzProgram[] | undefined {
+    const meta = this.selectMeta.get(scope);
+    if (!meta) return undefined;
+    if (this.now() - Number(meta.refreshed_at) >= CACHE_TTL_MS) return undefined;
+    return this.selectRows.all(scope).map(row => ({
+      id: String(row.program_id), title: String(row.title),
+      kind: row.kind === 'movie' ? 'movie' as const : 'tv' as const, urlName: String(row.url_name),
+    }));
+  }
+
+  /**
+   * Replaces the scope's snapshot with `rows`, atomically. Only ever called with the result of a
+   * discovery that was consumed to completion by its caller (see `streamCzPrograms`), so a
+   * snapshot is never partial.
+   */
+  write(scope: CacheScope, rows: readonly StreamCzProgram[]): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.deleteRows.run(scope);
+      for (const row of rows) this.insertRow.run(scope, row.id, row.title, row.kind, row.urlName);
+      this.upsertMeta.run(scope, String(this.now()));
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+}
 
 function nodeFrom(source: unknown): CatalogNode | null {
   const id = getPath(source, 'id');
@@ -75,16 +149,21 @@ async function* paginateConnection(
     const data = await run(cursor);
     const connection = getPath(data, connectionPath);
     const edges = getPath(connection, 'edges');
-    if (Array.isArray(edges)) {
-      for (const edge of edges) {
-        const node = nodeFrom(getPath(edge, 'node'));
-        if (node) yield node;
-      }
-    }
     const hasNextPage = getPath(connection, 'pageInfo.hasNextPage');
-    if (hasNextPage !== true) return;
+    if (!Array.isArray(edges) || typeof hasNextPage !== 'boolean') {
+      throw new Error('Stream.cz returned an incomplete programme connection');
+    }
+    for (const edge of edges) {
+      const node = nodeFrom(getPath(edge, 'node'));
+      if (!node) throw new Error('Stream.cz returned an incomplete programme');
+      yield node;
+    }
+    if (!hasNextPage) return;
     const endCursor = getPath(connection, 'pageInfo.endCursor');
-    cursor = typeof endCursor === 'string' ? endCursor : '';
+    if (typeof endCursor !== 'string' || !endCursor || endCursor === cursor) {
+      throw new Error('Stream.cz returned an invalid programme cursor');
+    }
+    cursor = endCursor;
   }
 }
 
@@ -164,10 +243,15 @@ function appServerState(html: string): unknown {
 async function categories(signal: AbortSignal): Promise<CatalogNode[]> {
   const html = await fetchText(CATEGORIES_URL, signal, { headers: { referer: REFERER } });
   const state = appServerState(html);
-  if (!state) return [];
+  if (!state) throw new Error('Stream.cz returned no catalogue state');
   const nodes: CatalogNode[] = [];
   const navCategories = getPath(state, 'page.navigationCategories.data');
-  if (Array.isArray(navCategories)) for (const entry of navCategories) { const node = nodeFrom(entry); if (node) nodes.push(node); }
+  if (!Array.isArray(navCategories)) throw new Error('Stream.cz returned no catalogue navigation');
+  for (const entry of navCategories) {
+    const node = nodeFrom(entry);
+    if (!node) throw new Error('Stream.cz returned an incomplete category');
+    nodes.push(node);
+  }
   const channel = nodeFrom(getPath(state, 'fetchable.tag.channel.data'));
   if (channel) nodes.push({ ...channel, kind: 'movie' }); // channel on the explicit /videa/filmy page
   return nodes;
@@ -196,24 +280,47 @@ function buildRelease(program: StreamCzProgram, episode: CatalogNode): Release {
   };
 }
 
-async function* streamCzPrograms(query: CatalogueQuery, signal: AbortSignal): AsyncGenerator<StreamCzProgram> {
+/**
+ * Programs for `query.kind`, from `cache` when its scope is still fresh; otherwise the live
+ * category -> program walk, cached once it runs to completion. A caller that stops early (an
+ * abort, an error, or simply not exhausting the generator) never reaches `cache.write`, so an
+ * interrupted discovery cannot corrupt a scope another caller is reading or refreshing.
+ */
+async function* streamCzPrograms(query: CatalogueQuery, signal: AbortSignal, cache: StreamCzCache): AsyncGenerator<StreamCzProgram> {
+  signal.throwIfAborted();
+  const scope = query.kind ?? 'all';
+  const cached = cache.read(scope);
+  if (cached) {
+    for (const program of cached) {
+      signal.throwIfAborted();
+      yield program;
+    }
+    return;
+  }
+  const discovered: StreamCzProgram[] = [];
   for (const category of await categories(signal)) {
     const kind = category.kind ?? (normalize(category.name) === 'filmy' ? 'movie' : 'tv');
     if (query.kind && query.kind !== kind) continue;
     for await (const program of programsOf(category.id, signal)) {
-      yield { id: program.id, title: program.name, kind, urlName: program.urlName };
+      const entry: StreamCzProgram = { id: program.id, title: program.name, kind, urlName: program.urlName };
+      discovered.push(entry);
+      yield entry;
     }
   }
+  signal.throwIfAborted();
+  cache.write(scope, discovered);
 }
 
 async function* streamCzReleases(program: StreamCzProgram, signal: AbortSignal): AsyncGenerator<Release> {
   for await (const episode of episodesOf(program.id, signal)) yield buildRelease(program, episode);
 }
 
-const streamCzCatalogue: Catalogue<StreamCzProgram> = {
-  programs: (query, signal) => streamCzPrograms(query, signal),
-  releases: (program, _query, signal) => streamCzReleases(program, signal),
-};
+function streamCzCatalogue(cache: StreamCzCache): Catalogue<StreamCzProgram> {
+  return {
+    programs: (query, signal) => streamCzPrograms(query, signal, cache),
+    releases: (program, _query, signal) => streamCzReleases(program, signal),
+  };
+}
 
 // --- Playback resolution (StreamCZEngine#getMedia) ---------------------------------------------
 
@@ -290,14 +397,15 @@ async function resolveStreamCz(release: Release, signal: AbortSignal): Promise<M
 /**
  * Stream.cz is a fully public catalog with no login required for standard VOD playback, so the
  * provider is enabled unless explicitly disabled via config. Upstream has no dedicated text-search
- * endpoint, so browsing walks the same category → program → episode tree the site itself uses.
+ * endpoint, so browsing walks the same category → program → episode tree the site itself uses;
+ * `database` holds a persistent snapshot of that walk (see `StreamCzCache`).
  */
-export function createStreamCzProvider(config: ProviderConfig = {}): Provider | null {
+export function createStreamCzProvider(config: ProviderConfig = {}, database: DatabaseSync, timing: StreamCzCacheTiming = {}): Provider | null {
   if (config.enabled === false) return null;
   return {
     id: 'streamcz',
     name: 'Stream.cz',
-    catalogue: streamCzCatalogue,
+    catalogue: streamCzCatalogue(new StreamCzCache(database, timing)),
     async resolve(release, signal) { return resolveStreamCz(release, signal); },
   };
 }

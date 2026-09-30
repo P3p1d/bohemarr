@@ -275,6 +275,13 @@ Sonarr searches by TVDB ID. For Oneplay and Prima+ (with an account), the first 
 
 SQLite's `series_mappings` table relates `(provider, source_id)` to `tvdb_id` and the nullable `tmdb_id`; its JSON payload preserves the canonical title, aliases and verified programme metadata. `tmdb_id` is specifically a **TMDB TV** ID, never a movie ID. Existing databases migrate automatically without reassigning bindings. Other sources are matched by title, season/episode or air date.
 
+Series discovery also reuses SQLite snapshots for up to **six hours**, including after a service restart:
+
+- `series_release_cache` stores successful exact season/episode results for verified Oneplay and Prima+ bindings. Empty results are not cached, so newly available episodes are checked again. Browsing and air-date searches still list episodes upstream.
+- `stream_catalogue_cache` and `stream_catalogue_cache_meta` store complete Stream.cz programme listings separately for TV, movies and unrestricted browsing. Failed, aborted or partially consumed listings never publish a snapshot.
+
+The first lookup after a cache miss or expiry still performs upstream discovery; programme listings can lag changes by six hours. The one-off `catalogue_tmdb_mappings` audit is not treated as proof that an unmatched series is unavailable. Only durable programme/episode identities are cached here: playback URLs, credentials, current quality and size remain live, and downloads always resolve playback again.
+
 Newznab advertises a maximum/default page size of five results. Each result resolves live playback metadata; smaller pages keep general catalogue requests within Arr connection timeouts when account sources are enabled. Further results remain available through `offset` pagination.
 
 ### Queue control

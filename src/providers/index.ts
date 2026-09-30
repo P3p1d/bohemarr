@@ -8,7 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { releaseId } from './common.ts';
 import type { Config, Provider, Release } from '../types.ts';
 
-/** `database` is the service database; providers that keep local state (the Prima+ index) own tables in it. */
+/** `database` is the service database; providers that keep local state (the Prima+ index, the Stream.cz discovery cache) own tables in it. */
 export function createProviders(config: Config, database: DatabaseSync): Map<string, Provider> {
   const providers = new Map<string, Provider>();
   for (const factory of [createPrimaProviders, createOneplayProviders, createCzechPublicProviders,
