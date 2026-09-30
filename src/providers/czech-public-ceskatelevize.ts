@@ -102,7 +102,7 @@ function episodeUrl(programUri: string, id: string): string {
   return `${programUri}${id}/`;
 }
 
-interface ShowMetadata { idec: string; seasons: string[] }
+interface ShowMetadata { idec: string; seasons: string[]; year?: number }
 
 async function fetchShowMetadata(programUri: string, signal: AbortSignal): Promise<ShowMetadata | null> {
   const html = await fetchText(programUri, signal, { headers: { referer: REFERER } });
@@ -113,8 +113,11 @@ async function fetchShowMetadata(programUri: string, signal: AbortSignal): Promi
   const idec = idecMatch?.[1];
   if (!idec) return null;
   let seasons: string[] = [];
+  let year: number | undefined;
   try {
     const parsed: unknown = JSON.parse(script);
+    const productionYear = Number(getPath(parsed, 'props.pageProps.data.show.year'));
+    if (Number.isSafeInteger(productionYear) && productionYear > 0) year = productionYear;
     const seasonList = getPath(parsed, 'props.pageProps.data.show.seasons');
     if (Array.isArray(seasonList)) {
       seasons = seasonList
@@ -127,7 +130,7 @@ async function fetchShowMetadata(programUri: string, signal: AbortSignal): Promi
   } catch {
     // The seasons block is optional context; idec alone is enough to continue.
   }
-  return { idec, seasons };
+  return { idec, seasons, year };
 }
 
 function buildEpisodeRelease(
@@ -137,7 +140,7 @@ function buildEpisodeRelease(
   const url = episodeUrl(pUrl, item.id);
   return {
     id: releaseId('ceskatelevize', url), provider: 'ceskatelevize', title: item.title,
-    url, kind, series: show.title, season, episode, data: { idec: meta.idec },
+    url, kind, series: show.title, season, episode, year: kind === 'movie' ? meta.year : undefined, data: { idec: meta.idec },
   };
 }
 

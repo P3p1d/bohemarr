@@ -13,7 +13,7 @@ const czechUri = `${root}/serialy/ano-sefe`;
 const foreignUri = `${root}/serialy/ano-sefe-s-gordonem-ramsaym`;
 const identity: SeriesIdentity = { tvdbId: 252180, title: 'Ano, šéfe!', aliases: [], year: 2009, country: 'cze' };
 
-function nuxtPage(title: Record<string, unknown>): string {
+function nuxtPage(title: Record<string, unknown>, field: 'title' | 'content' = 'title'): string {
   const table: unknown[] = [];
   function reference(value: unknown): number {
     const index = table.length;
@@ -23,7 +23,7 @@ function nuxtPage(title: Record<string, unknown>): string {
         ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, reference(item)])) : value;
     return index;
   }
-  reference({ data: { page: { title } } });
+  reference({ data: { page: { [field]: title } } });
   return `<script id="__NUXT_DATA__">${JSON.stringify(table)}</script>`;
 }
 
@@ -83,6 +83,27 @@ function catalogue(
   t.after(async () => { await provider.close?.(); database.close(); });
   return provider;
 }
+
+test('Prima movie searches retain the real production year and exclude the sequel', async t => {
+  const films = [
+    { uri: `${root}/filmy/andel-pane`, title: 'Anděl Páně', id: 'original', year: 2005 },
+    { uri: `${root}/filmy/andel-pane-2`, title: 'Anděl Páně 2', id: 'sequel', year: 2016 },
+  ];
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === `${root}/sitemap-series.xml`) return new Response(sitemap([]));
+    if (url === `${root}/sitemap-movie.xml`) return new Response(sitemap(films.map(film => ({ uri: film.uri, lastmod: '2026-09-01T00:00:00+00:00' }))));
+    const film = films.find(film => film.uri === url);
+    if (film) return new Response(`<head><title>${film.title} online ke zhlédnutí | prima+</title></head>${nuxtPage({ id: film.id, title: film.title, type: 'movie', additionals: { year: film.year } }, 'content')}`);
+    if (url.startsWith('https://zoom.iprima.cz/snippet/') || url === 'https://cnn.iprima.cz/porady') return new Response('');
+    throw new Error(`Unexpected request ${url}`);
+  });
+  const database = new DatabaseSync(':memory:');
+  const provider = createPrimaProviders({ iprima: { enabled: true, username: 'test@example.invalid', password: 'test-password' } }, database)[0]!;
+  t.after(async () => { await provider.close?.(); database.close(); });
+  const releases = await searchCatalogue(provider, { q: 'Anděl Páně 2005', kind: 'movie', limit: 10, offset: 0 }, new AbortController().signal);
+  assert.deepEqual(releases.map(release => ({ title: release.title, year: release.year, url: release.url })), [{ title: 'Anděl Páně', year: 2005, url: `${root}/filmy/andel-pane` }]);
+});
 
 for (const method of ['vdm.frontend.season.list.hbbtv', 'vdm.frontend.episodes.list.hbbtv']) {
   test(`Prima search renews a rejected account token during ${method}`, async t => {

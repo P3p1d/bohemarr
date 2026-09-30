@@ -41,6 +41,7 @@ flowchart LR
 ## Features
 
 - **Newznab indexer** with title, season/episode, daily (`season=2026&ep=09/28`) and `tvdbid` searches, categories Movies `2000` and TV `5000`.
+- **Movie production-year matching.** Radarr queries such as `Anděl Páně 2005` or `Anděl Páně (2005)` search upstream catalogues by title, then require the source's actual production year. Prima+ movie content and ČT programme metadata supply that year; sequels, conflicting years and unknown years are not relabelled to match the request.
 - **Series identity matching.** A `tvdbid` search binds the TVDB series to a program only when the source's own metadata agrees on year *and* country, so the Czech *Love Island* is never confused with another country's edition.
 - **SABnzbd-compatible download client** with queue, history, pause/resume (global and per job), retry, and removal with optional file deletion.
 - **Durable queue in SQLite.** Interrupted downloads return to the queue after a restart and resume from validated checkpoints where the source allows it.
@@ -257,7 +258,7 @@ In each application, **Settings → Download Clients → Add → SABnzbd**:
 
 Enable **Completed Download Handling**. In the indexer's settings, set this client as the indexer's download client, so Bohemarr results never go to a real Usenet client and your Usenet results never come here. A grab from Bohemarr is a signed *task descriptor* in an NZB envelope that only the instance that issued it accepts, and Bohemarr rejects ordinary NZB files.
 
-The connection test for the indexer lists the newest episode of each program. Slow upstream catalogues can make it take tens of seconds.
+The connection test for the indexer browses archive films or each programme's newest episode. Newznab advertises and enforces a maximum page size of 20; clients use `offset` for subsequent pages. This bounds playback metadata inspection per response, but slow upstream catalogues can still make a connection test take tens of seconds.
 
 ## Operating Bohemarr
 
@@ -336,7 +337,8 @@ The image has a Docker health check on `/health`. Useful log lines:
 | Download client test fails, or grabs fail with `Only this instance's task URLs can be submitted` | `PUBLIC_URL` does not match the address the *arr application uses to reach Bohemarr. |
 | Import fails: path does not exist | `/downloads` is not the same directory in both containers; fix the mounts or add a Remote Path Mapping. |
 | Sonarr finds nothing for a series | Check the log for `is unbound`. `no-candidate`: no program name fits. `identity-incomplete`: TVDB lacks the year or country. `year-mismatch` / `country-mismatch`: the source's metadata disagrees with TVDB. `ambiguous`: more than one program fits. `program-already-bound` / `identity-already-bound`: an earlier binding already claims one side. |
-| Results appear but Sonarr rejects them | Sources do not publish resolution or size. Your quality profile or size limits may reject releases parsed as `WEBDL-480p`, or with size 0. |
+| Radarr finds no Bohemarr film | Add the indexer in Radarr itself with category `2000` (Sonarr's configuration is separate). The title must exist in an enabled source; a requested year must agree with the source's production-year metadata. Unknown years are not guessed. |
+| Results appear but Sonarr/Radarr rejects them | Read the release's rejection reason. An existing file may already meet the quality/custom-format cutoff. If playback metadata is unavailable, unknown resolution or size `0` can also violate the profile or size limits. |
 | `An ongoing … live stream cannot be imported` or `Live … streams are not supported for download` | Live broadcasts are refused on purpose; wait until the programme is in the archive. |
 | Playback denied for an account source | The account lacks the entitlement, or its session was refused twice. Check the credentials; Bohemarr logs in again once by itself. |
 | iPrima answers `HTTP 403` everywhere (log: `iPrima refused a page`) | iPrima's CDN temporarily blocks addresses that send too many requests, playback included. In tests it lifted after about ten minutes. Do not run other iPrima scrapers from the same address. |

@@ -25,9 +25,14 @@ export async function searchCatalogue(provider: CatalogueProvider, query: Search
   signal.throwIfAborted();
   const page = new Page(provider.id, query.offset + query.limit);
   const { catalogue } = provider;
-  const hint: CatalogueQuery = { q: query.q, kind: query.kind, season: query.season, episode: query.episode, airDate: query.airDate };
+  // Radarr appends the production year; upstream title searches do not search year metadata.
+  const text = query.q.trim();
+  const movieYear = query.kind === 'movie' ? /\s+\(?(\d{4})\)?$/.exec(text) : null;
+  const year = movieYear ? Number(movieYear[1]) : undefined;
+  const hint: CatalogueQuery = { q: movieYear ? text.slice(0, movieYear.index) : text,
+    kind: query.kind, season: query.season, episode: query.episode, airDate: query.airDate };
   const take = (release: Release, filter: CatalogueQuery = hint): void => {
-    if (matches(release, filter)) page.add(release);
+    if (matches(release, filter, year)) page.add(release);
   };
 
   if (query.programId !== undefined) {
@@ -42,7 +47,7 @@ export async function searchCatalogue(provider: CatalogueProvider, query: Search
     return page.result(query.offset);
   }
 
-  const q = query.q.trim();
+  const q = hint.q;
   if (URL_QUERY.test(q)) {
     const release = await catalogue.releaseForUrl?.(new URL(q), hint, signal);
     if (release) take(release, { ...hint, q: '' });
@@ -65,7 +70,7 @@ export async function searchCatalogue(provider: CatalogueProvider, query: Search
   const expand = async (program: Program, expansionSignal: AbortSignal): Promise<Release[]> => {
     const found: Release[] = [];
     for await (const release of catalogue.releases(program, hint, expansionSignal)) {
-      if (!matches(release, hint)) continue;
+      if (!matches(release, hint, year)) continue;
       found.push(release);
       if (browsing || found.length >= page.needed) break;
     }
@@ -82,8 +87,9 @@ export async function searchCatalogue(provider: CatalogueProvider, query: Search
   return page.result(query.offset);
 }
 
-function matches(release: Release, query: CatalogueQuery): boolean {
+function matches(release: Release, query: CatalogueQuery, year: number | undefined): boolean {
   if (query.kind && release.kind !== query.kind) return false;
+  if (year !== undefined && release.year !== year) return false;
   if (query.airDate && episodeAirDate(release) !== query.airDate) return false;
   if (query.season !== undefined && release.season !== query.season
       && !(query.season >= 1900 && episodeAirDate(release)?.startsWith(`${query.season}-`))) return false;

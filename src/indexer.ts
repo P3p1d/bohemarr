@@ -6,6 +6,9 @@ import { inspectMediaSources } from './media/metadata.ts';
 import type { SeriesBindings } from './series-binding.ts';
 import type { Config, Provider, Release, SearchQuery } from './types.ts';
 
+// Every result resolves playback metadata; clients can request subsequent pages with offset.
+const MAX_PAGE_SIZE = 20;
+
 export function xml(value: unknown): string {
   return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!);
 }
@@ -26,7 +29,7 @@ export class Indexer {
 
   capabilities(): string {
     return `<?xml version="1.0" encoding="UTF-8"?><caps><server version="1.0" title="Bohemarr"/>
-      <limits max="100" default="50"/><registration available="no" open="no"/>
+      <limits max="${MAX_PAGE_SIZE}" default="${MAX_PAGE_SIZE}"/><registration available="no" open="no"/>
       <searching><search available="yes" supportedParams="q"/><tv-search available="yes" supportedParams="q,season,ep,tvdbid"/><movie-search available="yes" supportedParams="q"/></searching>
       <categories><category id="2000" name="Movies"/><category id="5000" name="TV"/></categories></caps>`;
   }
@@ -38,7 +41,7 @@ export class Indexer {
       if (!Number.isSafeInteger(result) || result < 0) throw new Error(`Invalid ${name}`);
       return result;
     };
-    const limit = Math.min(integer('limit', 50)!, 100);
+    const limit = Math.min(integer('limit', MAX_PAGE_SIZE)!, MAX_PAGE_SIZE);
     const offset = integer('offset', 0)!;
     if (offset > 10000) throw new Error('Search offset exceeds 10000');
     const categories = (params.cat || '').split(',').map(Number);

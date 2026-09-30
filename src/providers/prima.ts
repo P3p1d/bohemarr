@@ -40,6 +40,7 @@ interface PrimaProgram {
   uri: string;
   title: string;
   kind: MediaKind;
+  year?: number;
   site: Site;
   /** False for a Prima+ programme whose index title is still derived from its URL. */
   titled?: boolean;
@@ -98,7 +99,15 @@ async function boundProgram(id: string, signal: AbortSignal): Promise<PrimaProgr
 
 async function* releases(program: PrimaProgram, auth: PrimaAuthenticator, signal: AbortSignal): AsyncGenerator<Release> {
   // Releases carry the real programme name, which Sonarr/Radarr parse; a URL-derived one would not match.
-  const named = program.titled === false ? { ...program, title: await pageTitle(program.uri, signal) ?? program.title } : program;
+  let named = program;
+  if (program.kind === 'movie' && program.site === 'www') {
+    const title = await primaPlusTitle(program.uri, signal);
+    const year = Number(get<unknown>(title, 'additionals.year', undefined));
+    named = { ...program, title: get<string>(title, 'title', program.title).trim(),
+      year: Number.isSafeInteger(year) && year > 0 ? year : undefined };
+  } else if (program.titled === false) {
+    named = { ...program, title: await pageTitle(program.uri, signal) ?? program.title };
+  }
   for await (const episode of episodesForSite(named.site, named, auth, signal)) yield buildRelease(named, episode);
 }
 
@@ -109,6 +118,7 @@ function buildRelease(program: PrimaProgram, episode: PrimaEpisode): Release {
     title: episode.title ?? program.title,
     url: episode.uri,
     kind: program.kind,
+    year: program.year,
     series: program.kind === 'tv' ? program.title : undefined,
     programId: program.kind === 'tv' ? program.uri : undefined,
     season: episode.season,
@@ -199,6 +209,8 @@ async function primaPlusTitle(uri: string, signal: AbortSignal): Promise<Record<
   for (const value of Object.values(nuxt?.data() ?? {})) {
     const title = get<Record<string, unknown> | null>(value, 'title', null);
     if (title && get<string>(title, 'id', '')) return title;
+    const content = get<Record<string, unknown> | null>(value, 'content', null);
+    if (content && get<string>(content, 'type', '') === 'movie' && get<string>(content, 'id', '')) return content;
   }
   throw new Error(`Unable to extract Prima+ program metadata for ${uri}`);
 }

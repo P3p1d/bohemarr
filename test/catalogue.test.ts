@@ -31,6 +31,25 @@ function catalogue(listing: Record<string, Release[] | (() => AsyncIterable<Rele
 const search = (value: Catalogue, q: SearchQuery, entries?: Release[]) => searchCatalogue({ id: 'p', catalogue: value, entries }, q, signal);
 const ids = (releases: Release[]) => releases.map(release => release.id);
 
+test('movie searches separate the production year from title lookup and reject conflicting or unknown years', async () => {
+  const films: Release[] = [
+    { id: 'original', provider: 'p', kind: 'movie', title: 'Anděl Páně', year: 2005, url: 'https://p.test/original' },
+    { id: 'sequel', provider: 'p', kind: 'movie', title: 'Anděl Páně 2', year: 2016, url: 'https://p.test/sequel' },
+    { id: 'misleading-title', provider: 'p', kind: 'movie', title: 'Anděl Páně 2005', year: 2016, url: 'https://p.test/wrong-year' },
+    { id: 'unknown-year', provider: 'p', kind: 'movie', title: 'Anděl Páně 2005', url: 'https://p.test/unknown-year' },
+  ];
+  const value: Catalogue = {
+    async *programs(hint) {
+      for (const film of films) if (film.title.includes(hint.q)) yield { id: film.id, title: film.title, kind: 'movie' };
+    },
+    async *releases(program) { yield films.find(film => film.id === program.id)!; },
+  };
+  for (const q of ['Anděl Páně 2005', 'Anděl Páně (2005)']) {
+    assert.deepEqual(ids(await search(value, query({ q, kind: 'movie' }))), ['original']);
+    assert.deepEqual(ids(await search(value, query({ q, kind: 'movie' }), films)), ['original']);
+  }
+});
+
 test('duplicates are removed before the page is counted, so a page is never short', async () => {
   // Two Programs list the same Release (e.g. a special filed under both).
   const { value } = catalogue({
