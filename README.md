@@ -274,6 +274,8 @@ Sonarr searches by TVDB ID. For Oneplay and Prima+ (with an account), the first 
 
 SQLite's `series_mappings` table relates `(provider, source_id)` to `tvdb_id` and the nullable `tmdb_id`; its JSON payload preserves the canonical title, aliases and verified programme metadata. `tmdb_id` is specifically a **TMDB TV** ID, never a movie ID. Existing databases migrate automatically without reassigning bindings. Other sources are matched by title, season/episode or air date.
 
+Newznab advertises a maximum/default page size of five results. Each result resolves live playback metadata; smaller pages keep general catalogue requests within Arr connection timeouts when account sources are enabled. Further results remain available through `offset` pagination.
+
 ### Queue control
 
 Everything is driven through the SABnzbd API, which Sonarr and Radarr call for you:

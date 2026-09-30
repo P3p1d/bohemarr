@@ -7,7 +7,7 @@ import type { SeriesBindings } from './series-binding.ts';
 import type { Config, Provider, Release, SearchQuery } from './types.ts';
 
 // Every result resolves playback metadata; clients can request subsequent pages with offset.
-const MAX_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 5;
 
 export function xml(value: unknown): string {
   return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!);
