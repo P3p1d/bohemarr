@@ -139,6 +139,18 @@ Bohemarr reads `/data/config.json` once at startup. The Compose file keeps `/dat
 
 Passwords are stored as plain text. Protect the host copy and the Docker volume.
 
+To remove a provider from search results and automatic grabs, set its `enabled` flag to `false` and restart Bohemarr. For example:
+
+```json
+{
+  "providers": {
+    "streamcz": { "enabled": false }
+  }
+}
+```
+
+Disabling a provider does not delete its cached catalogue entries or completed downloads; it only prevents new searches and grabs from using that provider.
+
 ### Top-level settings
 
 | Key | Default | Meaning |
@@ -244,6 +256,16 @@ Then sync it to your applications under **Settings → Apps**.
 ### Sonarr / Radarr indexer (without Prowlarr)
 
 **Settings → Indexers → Add → Newznab** with URL `http://bohemarr:8787/newznab`, API path `/api`, the API key, and category `5000` (Sonarr) or `2000` (Radarr). Start with **Interactive Search** only and leave RSS and Automatic Search off until you have seen what the sources return.
+
+### Automatic grabs
+
+After verifying results with an interactive search, enable **RSS** and **Automatic Search** on the Bohemarr indexer in Sonarr or Radarr. These controls are independent:
+
+- **Interactive Search** is used only when you start a search manually.
+- **Automatic Search** lets the application include Bohemarr when it starts a background search for missing media.
+- **RSS** lets the application poll Bohemarr for newly published releases and grab matching monitored media without a manual search.
+
+Leaving RSS or Automatic Search disabled produces a working interactive search but prevents that automatic path. If Prowlarr manages the indexer with **Full Sync**, set the same options in its sync profile or use **Add/Remove Only**; otherwise its next synchronization overwrites local Sonarr/Radarr settings.
 
 ### Download client
 
