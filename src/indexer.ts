@@ -3,7 +3,8 @@ import { XMLParser } from 'fast-xml-parser';
 import { Store } from './store.ts';
 import { releaseTitle, normalizeLanguage, sanitizeFilename } from './providers/common.ts';
 import { inspectMediaSources } from './media/metadata.ts';
-import type { SeriesBindings } from './series-binding.ts';
+import { MovieBindings } from './movie-binding.ts';
+import type { BindingSearch, SeriesBindings } from './series-binding.ts';
 import type { Config, Provider, Release, SearchQuery } from './types.ts';
 
 // Every result resolves playback metadata; clients can request subsequent pages with offset.
@@ -19,18 +20,20 @@ export class Indexer {
   private readonly store: Store;
   private readonly providers: Map<string, Provider>;
   private readonly bindings: SeriesBindings;
+  private readonly movieBindings: MovieBindings;
 
   constructor(config: Config, store: Store, providers: Map<string, Provider>, bindings: SeriesBindings) {
     this.config = config;
     this.store = store;
     this.providers = providers;
     this.bindings = bindings;
+    this.movieBindings = new MovieBindings(store.database);
   }
 
   capabilities(): string {
     return `<?xml version="1.0" encoding="UTF-8"?><caps><server version="1.0" title="Bohemarr"/>
       <limits max="${MAX_PAGE_SIZE}" default="${MAX_PAGE_SIZE}"/><registration available="no" open="no"/>
-      <searching><search available="yes" supportedParams="q"/><tv-search available="yes" supportedParams="q,season,ep,tvdbid"/><movie-search available="yes" supportedParams="q"/></searching>
+      <searching><search available="yes" supportedParams="q"/><tv-search available="yes" supportedParams="q,season,ep,tvdbid"/><movie-search available="yes" supportedParams="q,tmdbid"/></searching>
       <categories><category id="2000" name="Movies"/><category id="5000" name="TV"/></categories></caps>`;
   }
 
@@ -65,8 +68,12 @@ export class Indexer {
     if (!enabled.length) throw new Error('No providers are enabled');
     const tvdbId = integer('tvdbid');
     if (tvdbId !== undefined && (tvdbId === 0 || params.t !== 'tvsearch')) throw new Error('Invalid tvdbid');
+    const tmdbId = integer('tmdbid');
+    if (tmdbId !== undefined && (tmdbId === 0 || params.t !== 'movie')) throw new Error('Invalid tmdbid');
     const identity = tvdbId === undefined ? undefined : await this.bindings.identity(tvdbId, signal);
-    const results = await Promise.allSettled(enabled.map(provider => this.bindings.search(provider, query, identity, signal)));
+    const results = await Promise.allSettled(enabled.map(provider => tmdbId === undefined
+      ? this.bindings.search(provider, query, identity, signal)
+      : this.movieBindings.search(provider, query, tmdbId, signal).then((releases): BindingSearch => ({ releases }))));
     signal.throwIfAborted();
     const failed = results.flatMap((result, index) => result.status === 'rejected' ? [`${enabled[index]!.id}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`] : []);
     if (failed.length === enabled.length) throw new Error(`All providers failed: ${failed.join('; ')}`);
@@ -78,7 +85,8 @@ export class Indexer {
       }
     });
     // Release ids are scoped by provider, and each provider's page is already deduplicated.
-    const all = results.flatMap(result => result.status === 'fulfilled' ? result.value.releases : []);
+    const releases = results.flatMap(result => result.status === 'fulfilled' ? result.value.releases : []);
+    const all = tmdbId === undefined ? releases : releases.map(release => ({ ...release, tmdbId }));
     all.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '') || a.id.localeCompare(b.id));
     const page = all.slice(offset, offset + limit);
     // Provider pages and manifests are inspected sequentially to avoid bursts at their CDNs.
@@ -114,7 +122,7 @@ export class Indexer {
     const date = new Date(release.publishedAt || 0);
     const size = Number.isFinite(release.size) && release.size! >= 0 ? Math.floor(release.size!) : 0;
     const description = release.sizeEstimated ? `${release.title} (estimated size)` : release.title;
-    return `<item><title>${xml(releaseTitle(release))}</title><guid isPermaLink="false">${xml(release.id)}</guid><link>${xml(url)}</link><comments>${xml(release.url)}</comments><pubDate>${xml(Number.isFinite(date.getTime()) ? date.toUTCString() : new Date(0).toUTCString())}</pubDate><category>${category}</category><description>${xml(description)}</description><enclosure url="${xml(url)}" length="${size}" type="application/x-nzb"/><newznab:attr name="category" value="${category}"/><newznab:attr name="size" value="${size}"/>${release.tvdbId === undefined ? '' : `<newznab:attr name="tvdbid" value="${release.tvdbId}"/>`}${release.season === undefined ? '' : `<newznab:attr name="season" value="${release.season}"/>`}${release.episode === undefined ? '' : `<newznab:attr name="episode" value="${release.episode}"/>`}</item>`;
+    return `<item><title>${xml(releaseTitle(release))}</title><guid isPermaLink="false">${xml(release.id)}</guid><link>${xml(url)}</link><comments>${xml(release.url)}</comments><pubDate>${xml(Number.isFinite(date.getTime()) ? date.toUTCString() : new Date(0).toUTCString())}</pubDate><category>${category}</category><description>${xml(description)}</description><enclosure url="${xml(url)}" length="${size}" type="application/x-nzb"/><newznab:attr name="category" value="${category}"/><newznab:attr name="size" value="${size}"/>${release.tvdbId === undefined ? '' : `<newznab:attr name="tvdbid" value="${release.tvdbId}"/>`}${release.tmdbId === undefined ? '' : `<newznab:attr name="tmdbid" value="${release.tmdbId}"/>`}${release.season === undefined ? '' : `<newznab:attr name="season" value="${release.season}"/>`}${release.episode === undefined ? '' : `<newznab:attr name="episode" value="${release.episode}"/>`}</item>`;
   }
 
   /** The signed Task descriptor (an NZB envelope) for a Release found by an earlier search. */

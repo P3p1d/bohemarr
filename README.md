@@ -80,6 +80,8 @@ TZ=Europe/Prague
 4. Run one interactive search first. Confirm that the releases and downloaded file import correctly.
 5. To grab monitored media automatically, enable **RSS** and **Automatic Search** for the Bohemarr indexer. Interactive Search alone is manual only.
 
+Radarr movie searches can include a TMDB ID. Bohemarr uses a verified local provider binding for that ID when one exists; otherwise it searches enabled providers by the title and year Radarr supplies. Matching results retain the TMDB ID.
+
 If Prowlarr manages the indexer with Full Sync, configure those options in its sync profile or use Add/Remove Only. Full Sync otherwise overwrites local Sonarr/Radarr settings.
 
 ## Build from source

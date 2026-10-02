@@ -48,6 +48,8 @@ export interface Release {
   kind: MediaKind;
   series?: string;
   tvdbId?: number;
+  /** The TMDB movie ID Radarr supplied for this search. */
+  tmdbId?: number;
   programId?: string;
   season?: number;
   episode?: number;

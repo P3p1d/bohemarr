@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-03
+
+### Radarr TMDB movie matching
+
+- Accept and advertise `tmdbid` on Newznab movie searches.
+- Use a verified local `catalogue_tmdb_mappings` movie binding to select the provider Program; when no binding exists, retain the title-and-year search fallback.
+- Return the requested TMDB ID on matching releases so Radarr can associate them with its movie.
+
 ## 2026-09-30
 
 ### Archive search and downloads
@@ -71,4 +79,3 @@ The catalogue matching pass is a completed deployment operation, **not a committ
 - Revalidated all 4,716 installed relations and checked SQLite integrity successfully.
 - The account-enabled Sonarr connection test passed with five-result pages.
 - This pass did **not** pair every catalogue entry. Missing or conflicting identity evidence remains unresolved rather than forced into a match.
-- Movie relations are stored in SQL; the current Radarr search implementation does **not** consume that bulk-mapping table.

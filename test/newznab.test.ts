@@ -4,7 +4,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { Store } from '../src/store.ts';
 import { Indexer } from '../src/indexer.ts';
 import { SeriesBindings } from '../src/series-binding.ts';
-import type { Config, Provider, SeriesIdentity } from '../src/types.ts';
+import type { Config, Provider, Release, SeriesIdentity } from '../src/types.ts';
 import { fakeCatalogue } from './fake-catalogue.ts';
 
 const identity: SeriesIdentity = { tvdbId: 12345, title: 'Show Name', aliases: [], year: 2020, country: 'US' };
@@ -77,6 +77,54 @@ test('Newznab publishes highest available video with Czech audio and an honest A
   const updated = parser.parse(await newznab.search(params, new AbortController().signal)).rss.channel.item;
   assert.equal(updated.title, 'Show Name S01E01 (CZ)[WEB-DL][2160p]');
   assert.equal(updated.enclosure['@_length'], '16128000');
+});
+
+test('movie searches advertise and return Radarr TMDB IDs', async () => {
+  const store = new Store(':memory:');
+  using dispose = store;
+  store.database.exec(`CREATE TABLE catalogue_tmdb_mappings (
+    provider TEXT NOT NULL, source_id TEXT NOT NULL, source_kind TEXT NOT NULL,
+    tmdb_kind TEXT NOT NULL, tmdb_id INTEGER NOT NULL, status TEXT NOT NULL
+  )`);
+  store.database.prepare('INSERT INTO catalogue_tmdb_mappings VALUES (?, ?, ?, ?, ?, ?)')
+    .run('direct', 'movie-source', 'movie', 'movie', 1032863, 'matched');
+  const movie: Release = {
+    id: 'movie-1', provider: 'direct', title: 'Film', kind: 'movie', year: 2026,
+    url: 'https://direct.test/film.mp4', programId: 'movie-source',
+  };
+  const provider: Provider = {
+    id: 'direct', name: 'Direct', resolve: async () => [],
+    catalogue: fakeCatalogue(bound => bound === 'movie-source' ? [movie] : []),
+  };
+  const newznab = new Indexer(config, store, new Map([[provider.id, provider]]), new SeriesBindings(store.database));
+
+  assert.match(newznab.capabilities(), /movie-search available="yes" supportedParams="q,tmdbid"/);
+  const feed = await newznab.search({ t: 'movie', q: 'Wrong title', tmdbid: '1032863' }, new AbortController().signal);
+  assert.match(feed, /<newznab:attr name="tmdbid" value="1032863"\/>/);
+  for (const bad of ['0', '-5', '1.5', 'abc', '1e9999999']) {
+    await assert.rejects(newznab.search({ t: 'movie', q: 'Film', tmdbid: bad }, new AbortController().signal));
+  }
+  await assert.rejects(newznab.search({ t: 'tvsearch', q: 'Film', tmdbid: '1032863' }, new AbortController().signal), /Invalid tmdbid/);
+});
+
+test('a TMDB movie binding selects a static catalogue entry', async () => {
+  const store = new Store(':memory:');
+  using dispose = store;
+  store.database.exec(`CREATE TABLE catalogue_tmdb_mappings (
+    provider TEXT NOT NULL, source_id TEXT NOT NULL, source_kind TEXT NOT NULL,
+    tmdb_kind TEXT NOT NULL, tmdb_id INTEGER NOT NULL, status TEXT NOT NULL
+  )`);
+  store.database.prepare('INSERT INTO catalogue_tmdb_mappings VALUES (?, ?, ?, ?, ?, ?)')
+    .run('direct', 'movie-1', 'movie', 'movie', 1032863, 'matched');
+  const movie: Release = { id: 'movie-1', provider: 'direct', title: 'Mapped Film', kind: 'movie', url: 'https://direct.test/film.mp4' };
+  const provider: Provider = {
+    id: 'direct', name: 'Direct', entries: [movie], resolve: async () => [],
+    catalogue: fakeCatalogue(() => [movie]),
+  };
+  const newznab = new Indexer(config, store, new Map([[provider.id, provider]]), new SeriesBindings(store.database));
+
+  const feed = await newznab.search({ t: 'movie', q: 'Wrong title', tmdbid: '1032863' }, new AbortController().signal);
+  assert.match(feed, /Mapped Film/);
 });
 
 test('invalid tvdbid values are rejected before any TVDB lookup', async () => {
