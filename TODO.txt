@@ -1,0 +1,19 @@
+# Bohemarr - Seznam požadavků a plán vývoje (TODO)
+
+## 📌 Aktuální / Implementované požadavky
+- [x] Nativní WebUI na portu 8787 s moderním tmavým vzhledem (HTML + CSS + Vanilla JS)
+- [x] Autentizace přes API klíč v hlavičce `x-api-key` a `localStorage`
+- [x] Podpora pro přímé vložení URL (Oneplay, Česká televize, Stream.cz, YouTube) mimo standardní karusely
+- [x] Procházení a vyhledávání napříč aktivními providery
+- [x] Živá fronta stahování v reálném čase (rychlost, plynulý progress bar, odhad velikosti, rušení úloh)
+- [x] Přehled stažených souborů na disku homeserveru + tlačítko pro stažení do PC přes HTTP Range 206
+- [x] Oprava Remote Path Mappings pro Sonarr (`/downloads/` -> `/data/downloads/`)
+- [x] Zobrazení verzování aplikace ve WebUI pro přehled o nasazených iteracích
+- [x] Stahování po sériích (možnost stáhnout konkrétní sérii místo nutnosti stahovat veškerý obsah celého seriálu) + výběr konkrétních epizod
+
+## 📋 Plánované funkce a nápady (Backlog)
+- [ ] Možnost volby kvality stahování (1080p / 720p / 576p) ve WebUI, pokud archiv nabízí vícero rozlišení
+- [ ] Webhook / automatické vyvolání Rescan Series v Sonarr po dokončení manuálního stažení ve WebUI
+- [ ] Vestavěný jednoduchý video přehrávač přímo v prohlížeči (modal pro rychlý náhled stažené epizody)
+- [ ] Filtrování a řazení v historii stažených souborů (podle data, velikosti, providera)
+- [ ] Tlačítko pro promazání/smazání staženého souboru z disku přímo z WebUI

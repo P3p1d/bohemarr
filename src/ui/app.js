@@ -184,6 +184,18 @@
       ]);
       serverConfig = conf;
 
+      if (conf.version) {
+        const badge = document.getElementById('app-version-badge');
+        if (badge) {
+          badge.textContent = `v${conf.version}`;
+          badge.title = `Bohemarr WebUI v${conf.version} (Build ${conf.build || ''})`;
+        }
+        const modalText = document.getElementById('modal-version-text');
+        if (modalText) {
+          modalText.textContent = `Bohemarr WebUI v${conf.version} (Build ${conf.build || ''})`;
+        }
+      }
+
       // Populate provider select
       searchProviderSelect.innerHTML = '<option value="">Všichni provideři</option>';
       provs.forEach(p => {
@@ -229,7 +241,60 @@
   function renderResolvedShow(data) {
     urlResolvedResult.style.display = 'block';
     const isTv = data.kind === 'tv';
-    const count = data.releases ? data.releases.length : 0;
+    const releases = data.releases || [];
+    const count = releases.length;
+
+    if (!isTv && count > 0) {
+      const rel = releases[0];
+      let html = `
+        <div class="show-detail-card">
+          <div class="show-header">
+            <div class="show-title-group">
+              <h3>${escapeHtml(data.title)}</h3>
+              <div class="show-meta-badges">
+                <span class="badge badge-primary">${escapeHtml(data.providerName || data.provider)}</span>
+                <span class="badge badge-secondary">Film</span>
+              </div>
+            </div>
+            <div class="show-actions">
+              ${rel.isCompleted ? `
+                <button class="btn btn-outline btn-sm" disabled>✅ Již staženo</button>
+              ` : rel.inQueue ? `
+                <button class="btn btn-outline btn-sm" disabled>Ve frontě</button>
+              ` : `
+                <button class="btn btn-primary btn-sm btn-download-release" data-id="${escapeHtml(rel.id)}">
+                  ⬇️ Stáhnout film
+                </button>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+      urlResolvedResult.innerHTML = html;
+      urlResolvedResult.querySelectorAll('.btn-download-release').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await enqueueRelease(btn.getAttribute('data-id'), btn);
+        });
+      });
+      return;
+    }
+
+    // Group releases by season
+    const seasonsMap = new Map();
+    releases.forEach(rel => {
+      let sNum = rel.season;
+      if (sNum === undefined || sNum === null || sNum < 0) {
+        const match = (rel.title || '').match(/(?:s|série|serie|rada|řada|season)\s*(\d+)/i) || (rel.title || '').match(/s(\d+)e\d+/i);
+        sNum = match && match[1] ? parseInt(match[1], 10) : 1;
+      }
+      if (!seasonsMap.has(sNum)) {
+        seasonsMap.set(sNum, []);
+      }
+      seasonsMap.get(sNum).push(rel);
+    });
+
+    const seasonKeys = [...seasonsMap.keys()].sort((a, b) => a - b);
+    const hasMultipleSeasons = seasonKeys.length > 1;
 
     let html = `
       <div class="show-detail-card">
@@ -238,48 +303,112 @@
             <h3>${escapeHtml(data.title)}</h3>
             <div class="show-meta-badges">
               <span class="badge badge-primary">${escapeHtml(data.providerName || data.provider)}</span>
-              <span class="badge badge-secondary">${isTv ? 'Seriál / Pořad' : 'Film'}</span>
-              ${isTv ? `<span class="badge badge-secondary">${count} ${count === 1 ? 'epizoda' : count < 5 ? 'epizody' : 'epizod'}</span>` : ''}
+              <span class="badge badge-secondary">Seriál / Pořad</span>
+              <span class="badge badge-secondary">${seasonKeys.length} ${seasonKeys.length === 1 ? 'série' : seasonKeys.length < 5 ? 'série' : 'sérií'}</span>
+              <span class="badge badge-secondary">${count} ${count === 1 ? 'epizoda' : count < 5 ? 'epizody' : 'epizod'}</span>
             </div>
           </div>
           <div class="show-actions">
-            ${isTv && count > 1 ? `
-              <button class="btn btn-primary btn-sm" id="btn-download-all-episodes">
-                ⬇️ Stáhnout všech ${count} epizod
+            ${count > 1 ? `
+              <button class="btn btn-outline btn-sm" id="btn-download-all-episodes" title="Stáhnout všech ${count} epizod ze všech sérií">
+                ⬇️ Stáhnout celý seriál (${count})
               </button>
             ` : ''}
           </div>
         </div>
     `;
 
-    if (isTv && count > 0) {
+    // Season quick filter tabs if more than 1 season
+    if (hasMultipleSeasons) {
       html += `
-        <div class="episodes-table-container">
-          <table class="table">
-            <thead>
-              <tr>
-                <th style="width: 100px;">Epizoda</th>
-                <th>Název epizody</th>
-                <th style="width: 120px;">Stav</th>
-                <th style="width: 140px; text-align: right;">Akce</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div class="season-nav-tabs">
+          <button class="btn-season-tab active" data-filter="all">Všechny série (${count})</button>
+      `;
+      seasonKeys.forEach(sNum => {
+        const sName = sNum === 0 ? 'Speciály' : `Série ${sNum}`;
+        const sCount = seasonsMap.get(sNum).length;
+        html += `<button class="btn-season-tab" data-filter="${sNum}">${sName} (${sCount})</button>`;
+      });
+      html += `</div>`;
+    }
+
+    // Render each season
+    seasonKeys.forEach(sNum => {
+      const sName = sNum === 0 ? 'Speciály (0. série)' : `Série ${sNum}`;
+      const seasonReleases = seasonsMap.get(sNum);
+      seasonReleases.sort((a, b) => (a.episode || 0) - (b.episode || 0));
+
+      const availableCount = seasonReleases.filter(r => !r.inQueue && !r.isCompleted).length;
+      const completedCount = seasonReleases.filter(r => r.isCompleted).length;
+      const queueCount = seasonReleases.filter(r => r.inQueue).length;
+
+      html += `
+        <div class="season-section" data-season-num="${sNum}">
+          <div class="season-section-header">
+            <div class="season-title-box">
+              <h4 class="season-title">📁 ${sName}</h4>
+              <div class="show-meta-badges">
+                <span class="badge badge-secondary">${seasonReleases.length} ${seasonReleases.length === 1 ? 'epizoda' : seasonReleases.length < 5 ? 'epizody' : 'epizod'}</span>
+                ${availableCount > 0 ? `<span class="badge badge-primary">${availableCount} ke stažení</span>` : ''}
+                ${queueCount > 0 ? `<span class="badge badge-warning">${queueCount} ve frontě</span>` : ''}
+                ${completedCount > 0 ? `<span class="badge badge-success">${completedCount} hotovo</span>` : ''}
+              </div>
+            </div>
+            <div class="season-actions">
+              ${availableCount > 1 ? `
+                <label class="season-select-all-label">
+                  <input type="checkbox" class="cb-select-season-all" data-season="${sNum}"> Vybrat
+                </label>
+                <button class="btn btn-outline btn-sm btn-download-selected-season" data-season="${sNum}" style="display: none;">
+                  ⬇️ Stáhnout vybrané (<span class="selected-count">0</span>)
+                </button>
+              ` : ''}
+              ${availableCount > 0 ? `
+                <button class="btn btn-primary btn-sm btn-download-season" data-season="${sNum}">
+                  ⬇️ Stáhnout ${sName} (${availableCount})
+                </button>
+              ` : `
+                <button class="btn btn-outline btn-sm" disabled>
+                  ✅ ${completedCount === seasonReleases.length ? 'Série stažena' : 'Vše ve frontě'}
+                </button>
+              `}
+            </div>
+          </div>
+
+          <div class="episodes-table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th style="width: 40px; text-align: center;"></th>
+                  <th style="width: 90px;">Epizoda</th>
+                  <th>Název epizody</th>
+                  <th style="width: 120px;">Stav</th>
+                  <th style="width: 130px; text-align: right;">Akce</th>
+                </tr>
+              </thead>
+              <tbody>
       `;
 
-      data.releases.forEach((rel) => {
+      seasonReleases.forEach(rel => {
         const epLabel = rel.season && rel.episode ? `S${String(rel.season).padStart(2, '0')}E${String(rel.episode).padStart(2, '0')}` : (rel.episode ? `E${rel.episode}` : '—');
         const statusBadge = rel.isCompleted ? '<span class="badge badge-success">Dokončeno</span>'
           : rel.inQueue ? `<span class="badge badge-warning">${rel.status === 'Downloading' ? 'Stahuje se' : 'Ve frontě'}</span>`
           : '<span class="badge badge-secondary">K dispozici</span>';
 
+        const canSelect = !rel.inQueue && !rel.isCompleted;
+
         html += `
           <tr data-release-id="${escapeHtml(rel.id)}">
+            <td style="text-align: center;">
+              <input type="checkbox" class="ep-checkbox" data-season="${sNum}" data-id="${escapeHtml(rel.id)}" ${!canSelect ? 'disabled' : ''}>
+            </td>
             <td><strong>${escapeHtml(epLabel)}</strong></td>
             <td>${escapeHtml(rel.title)}</td>
-            <td>${statusBadge}</td>
+            <td class="status-cell">${statusBadge}</td>
             <td style="text-align: right;">
-              ${rel.inQueue ? `
+              ${rel.isCompleted ? `
+                <button class="btn btn-outline btn-sm" disabled>Hotovo</button>
+              ` : rel.inQueue ? `
                 <button class="btn btn-outline btn-sm" disabled>Ve frontě</button>
               ` : `
                 <button class="btn btn-primary btn-sm btn-download-release" data-id="${escapeHtml(rel.id)}">
@@ -292,28 +421,18 @@
       });
 
       html += `
-            </tbody>
-          </table>
-        </div>
-      `;
-    } else if (!isTv && data.releases && data.releases.length > 0) {
-      const rel = data.releases[0];
-      html += `
-        <div class="d-flex justify-between items-center mt-2">
-          <div>
-            <p class="text-muted">Film připraven ke stažení.</p>
+              </tbody>
+            </table>
           </div>
-          <button class="btn btn-primary btn-download-release" data-id="${escapeHtml(rel.id)}">
-            ⬇️ Stáhnout film
-          </button>
         </div>
       `;
-    }
+    });
 
     html += `</div>`;
     urlResolvedResult.innerHTML = html;
 
-    // Attach click events
+    // Attach Event Listeners
+    // 1. Single episode download
     urlResolvedResult.querySelectorAll('.btn-download-release').forEach(btn => {
       btn.addEventListener('click', async () => {
         const relId = btn.getAttribute('data-id');
@@ -321,13 +440,32 @@
       });
     });
 
-    const btnDownloadAll = document.getElementById('btn-download-all-episodes');
-    if (btnDownloadAll) {
-      btnDownloadAll.addEventListener('click', async () => {
-        btnDownloadAll.disabled = true;
-        btnDownloadAll.textContent = 'Přidávám do fronty...';
+    // 2. Season Tab Filter
+    urlResolvedResult.querySelectorAll('.btn-season-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        urlResolvedResult.querySelectorAll('.btn-season-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const filter = tab.getAttribute('data-filter');
+        urlResolvedResult.querySelectorAll('.season-section').forEach(sec => {
+          if (filter === 'all' || sec.getAttribute('data-season-num') === filter) {
+            sec.style.display = 'block';
+          } else {
+            sec.style.display = 'none';
+          }
+        });
+      });
+    });
+
+    // 3. Download entire season
+    urlResolvedResult.querySelectorAll('.btn-download-season').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const sNum = parseInt(btn.getAttribute('data-season'), 10);
+        const sReleases = seasonsMap.get(sNum) || [];
+        btn.disabled = true;
+        btn.textContent = 'Přidávám do fronty...';
+
         let addedCount = 0;
-        for (const rel of data.releases) {
+        for (const rel of sReleases) {
           if (!rel.inQueue && !rel.isCompleted) {
             try {
               await apiRequest('/api/ui/queue', {
@@ -335,6 +473,134 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ releaseId: rel.id, category: 'tv' }),
               });
+              rel.inQueue = true;
+              addedCount++;
+
+              // Update row in UI
+              const row = urlResolvedResult.querySelector(`tr[data-release-id="${rel.id}"]`);
+              if (row) {
+                const statusCell = row.querySelector('.status-cell');
+                if (statusCell) statusCell.innerHTML = '<span class="badge badge-warning">Ve frontě</span>';
+                const rowBtn = row.querySelector('.btn-download-release');
+                if (rowBtn) {
+                  rowBtn.disabled = true;
+                  rowBtn.textContent = 'Ve frontě';
+                  rowBtn.classList.remove('btn-primary');
+                  rowBtn.classList.add('btn-outline');
+                }
+                const cb = row.querySelector('.ep-checkbox');
+                if (cb) {
+                  cb.disabled = true;
+                  cb.checked = false;
+                }
+              }
+            } catch (err) {
+              console.error('Failed to enqueue release', rel.id, err);
+            }
+          }
+        }
+
+        const sTitle = sNum === 0 ? 'Speciály' : `Série ${sNum}`;
+        showToast(`Přidáno ${addedCount} epizod ze ${sTitle} do fronty`, 'success');
+        btn.textContent = '✅ Série přidána';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-outline');
+        loadQueue();
+      });
+    });
+
+    // 4. Checkbox Multi-selection within seasons
+    urlResolvedResult.querySelectorAll('.season-section').forEach(sec => {
+      const sNum = sec.getAttribute('data-season-num');
+      const selectAllCb = sec.querySelector('.cb-select-season-all');
+      const btnDownloadSelected = sec.querySelector('.btn-download-selected-season');
+      const epCheckboxes = sec.querySelectorAll('.ep-checkbox:not(:disabled)');
+
+      function updateSelectedState() {
+        if (!btnDownloadSelected) return;
+        const checked = sec.querySelectorAll('.ep-checkbox:checked');
+        const count = checked.length;
+        if (count > 0) {
+          btnDownloadSelected.style.display = 'inline-flex';
+          const cntSpan = btnDownloadSelected.querySelector('.selected-count');
+          if (cntSpan) cntSpan.textContent = count;
+        } else {
+          btnDownloadSelected.style.display = 'none';
+        }
+        if (selectAllCb) {
+          selectAllCb.checked = count > 0 && count === epCheckboxes.length;
+        }
+      }
+
+      if (selectAllCb) {
+        selectAllCb.addEventListener('change', () => {
+          epCheckboxes.forEach(cb => { cb.checked = selectAllCb.checked; });
+          updateSelectedState();
+        });
+      }
+
+      epCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateSelectedState);
+      });
+
+      if (btnDownloadSelected) {
+        btnDownloadSelected.addEventListener('click', async () => {
+          btnDownloadSelected.disabled = true;
+          btnDownloadSelected.textContent = 'Přidávám...';
+          const checked = sec.querySelectorAll('.ep-checkbox:checked');
+          let addedCount = 0;
+          for (const cb of checked) {
+            const relId = cb.getAttribute('data-id');
+            try {
+              await apiRequest('/api/ui/queue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ releaseId: relId, category: 'tv' }),
+              });
+              addedCount++;
+              const row = sec.querySelector(`tr[data-release-id="${relId}"]`);
+              if (row) {
+                const statusCell = row.querySelector('.status-cell');
+                if (statusCell) statusCell.innerHTML = '<span class="badge badge-warning">Ve frontě</span>';
+                const rowBtn = row.querySelector('.btn-download-release');
+                if (rowBtn) {
+                  rowBtn.disabled = true;
+                  rowBtn.textContent = 'Ve frontě';
+                  rowBtn.classList.remove('btn-primary');
+                  rowBtn.classList.add('btn-outline');
+                }
+                cb.disabled = true;
+                cb.checked = false;
+              }
+            } catch (err) {
+              console.error('Failed to enqueue release', relId, err);
+            }
+          }
+          showToast(`Přidáno ${addedCount} vybraných epizod do fronty`, 'success');
+          btnDownloadSelected.style.display = 'none';
+          btnDownloadSelected.disabled = false;
+          if (selectAllCb) selectAllCb.checked = false;
+          loadQueue();
+        });
+      }
+    });
+
+    // 5. Download all episodes (global)
+    const btnDownloadAll = document.getElementById('btn-download-all-episodes');
+    if (btnDownloadAll) {
+      btnDownloadAll.addEventListener('click', async () => {
+        btnDownloadAll.disabled = true;
+        btnDownloadAll.textContent = 'Přidávám celý seriál...';
+        let addedCount = 0;
+        for (const rel of releases) {
+          if (!rel.inQueue && !rel.isCompleted) {
+            try {
+              await apiRequest('/api/ui/queue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ releaseId: rel.id, category: 'tv' }),
+              });
+              rel.inQueue = true;
               addedCount++;
             } catch (err) {
               console.error('Failed to enqueue', rel.id, err);
@@ -343,6 +609,7 @@
         }
         showToast(`Přidáno ${addedCount} epizod do fronty`, 'success');
         btnDownloadAll.textContent = '✅ Vše přidáno';
+        btnDownloadAll.disabled = true;
         loadQueue();
       });
     }

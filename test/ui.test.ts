@@ -150,6 +150,14 @@ test('UI: config and providers endpoints return current configuration', async ()
   assert.equal(configRes.statusCode, 200);
   const configData = JSON.parse(configRes.body);
   assert.deepEqual(configData.categories, ['tv', 'movies']);
+  assert.equal(configData.version, '1.2.0');
+
+  // /api/ui/version
+  const verRes = await app.inject({ method: 'GET', url: '/api/ui/version', headers: authHeader });
+  assert.equal(verRes.statusCode, 200);
+  const verData = JSON.parse(verRes.body);
+  assert.equal(verData.version, '1.2.0');
+  assert.equal(typeof verData.build, 'string');
 
   // /api/ui/providers
   const provRes = await app.inject({ method: 'GET', url: '/api/ui/providers', headers: authHeader });

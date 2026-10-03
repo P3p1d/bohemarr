@@ -49,6 +49,9 @@ export async function findJobFile(storagePath: string): Promise<string | undefin
   }
 }
 
+export const APP_VERSION = '1.2.0';
+export const APP_BUILD = '2026.10.03-r3';
+
 export function registerUiRoutes(
   app: FastifyInstance,
   config: Config,
@@ -90,15 +93,21 @@ export function registerUiRoutes(
 
   // 2. Auth check endpoint
   app.get('/api/ui/auth', async () => {
-    return { status: true, version: '1.0.0' };
+    return { status: true, version: APP_VERSION, build: APP_BUILD };
   });
 
   // 3. UI config & providers
   app.get('/api/ui/config', async () => {
     return {
+      version: APP_VERSION,
+      build: APP_BUILD,
       categories: config.categories,
       downloadsDir: config.downloadsDir,
     };
+  });
+
+  app.get('/api/ui/version', async () => {
+    return { version: APP_VERSION, build: APP_BUILD };
   });
 
   app.get('/api/ui/providers', async () => {

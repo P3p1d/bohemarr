@@ -369,6 +369,97 @@ body {
   flex-wrap: wrap;
 }
 
+/* Season Sections & Tabs */
+.season-nav-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.btn-season-tab {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-season-tab:hover {
+  color: var(--text-main);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.btn-season-tab.active {
+  background: var(--primary-light);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.5);
+  font-weight: 600;
+}
+
+.season-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+
+.season-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 1.15rem;
+  background: var(--bg-surface-elevated);
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.season-title-box {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.season-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.season-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.season-select-all-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.825rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ep-checkbox {
+  cursor: pointer;
+  accent-color: #38bdf8;
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+}
+
 /* Episode Table / List */
 .episodes-table-container {
   max-height: 480px;
