@@ -17,3 +17,4 @@
 - [ ] Vestavěný jednoduchý video přehrávač přímo v prohlížeči (modal pro rychlý náhled stažené epizody)
 - [ ] Filtrování a řazení v historii stažených souborů (podle data, velikosti, providera)
 - [ ] Tlačítko pro promazání/smazání staženého souboru z disku přímo z WebUI
+- [ ] Zachování stažených souborů ve WebUI po přesunutí Sonarrem (např. automatický hardlink do webui archivu nebo propojení se Sonarr API)
