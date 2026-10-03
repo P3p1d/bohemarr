@@ -143,6 +143,7 @@ async function selectDecryptionKey(
 export async function obtainAndDecryptTrack(
   config: Config, cdm: Cdm, license: License, track: ProtectedTrack, headers: Record<string, string> | undefined,
   workDir: string, label: string, signal: AbortSignal, onBytes: (bytes: number) => void,
+  onSegment?: (completed: number, total: number) => void,
 ): Promise<string> {
   if (!track.mediaSegments.length) throw new Error(`${label} track has no media segments`);
   const outputPath = join(workDir, `${label}.mp4`);
@@ -166,7 +167,7 @@ export async function obtainAndDecryptTrack(
   }
 
   const resumeStatePath = join(workDir, `${label}.state.json`);
-  await downloadSegmentsConcat(segments, headers, outputPath, signal, onBytes, resumeStatePath);
+  await downloadSegmentsConcat(segments, headers, outputPath, signal, onBytes, resumeStatePath, onSegment);
   await decryptTrack(config, outputPath, selected.kid, selected.key, signal);
   await writeFile(doneMarkerPath, identity);
   return outputPath;

@@ -85,9 +85,40 @@ export async function downloadProtectedMedia(
   }
 
   const bytesState = { value: 0 };
+  let totalSegments = 0;
+  for (const period of periods) {
+    totalSegments += (period.video.initSegment ? 1 : 0) + period.video.mediaSegments.length;
+    if (period.audio) {
+      totalSegments += (period.audio.initSegment ? 1 : 0) + period.audio.mediaSegments.length;
+    }
+  }
+
+  let completedSegmentsCount = 0;
+  let currentTrackBase = 0;
+
+  const emitProgress = (): void => {
+    let progressPercent: number | undefined;
+    let estimatedTotal: number | undefined;
+    if (totalSegments > 0) {
+      progressPercent = Math.min(90, Math.floor((completedSegmentsCount / totalSegments) * 90));
+      if (completedSegmentsCount >= 2 && bytesState.value > 0) {
+        estimatedTotal = Math.round((bytesState.value / completedSegmentsCount) * totalSegments);
+      }
+    }
+    onProgress({ bytes: bytesState.value, progress: progressPercent, totalBytes: estimatedTotal });
+  };
+
   const reportBytes = (delta: number): void => {
     bytesState.value += delta;
-    onProgress({ bytes: bytesState.value });
+    emitProgress();
+  };
+
+  const createSegmentTracker = () => {
+    const base = currentTrackBase;
+    return (completedInTrack: number) => {
+      completedSegmentsCount = base + completedInTrack;
+      emitProgress();
+    };
   };
 
   // Note: workDir (downloaded/decrypted track segments + resume checkpoints) is deliberately left
@@ -98,10 +129,23 @@ export async function downloadProtectedMedia(
   let totalDurationSeconds = 0;
   for (const [index, period] of periods.entries()) {
     const suffix = periods.length > 1 ? `-p${index}` : '';
-    videoPaths.push(await obtainAndDecryptTrack(config, cdm, license, period.video, source.headers, workDir, `video${suffix}`, signal, reportBytes));
+    const videoTrackTotal = (period.video.initSegment ? 1 : 0) + period.video.mediaSegments.length;
+    videoPaths.push(await obtainAndDecryptTrack(
+      config, cdm, license, period.video, source.headers, workDir, `video${suffix}`, signal,
+      reportBytes, createSegmentTracker(),
+    ));
+    currentTrackBase += videoTrackTotal;
+    completedSegmentsCount = currentTrackBase;
     signal.throwIfAborted();
+
     if (period.audio) {
-      audioPaths.push(await obtainAndDecryptTrack(config, cdm, license, period.audio, source.headers, workDir, `audio${suffix}`, signal, reportBytes));
+      const audioTrackTotal = (period.audio.initSegment ? 1 : 0) + period.audio.mediaSegments.length;
+      audioPaths.push(await obtainAndDecryptTrack(
+        config, cdm, license, period.audio, source.headers, workDir, `audio${suffix}`, signal,
+        reportBytes, createSegmentTracker(),
+      ));
+      currentTrackBase += audioTrackTotal;
+      completedSegmentsCount = currentTrackBase;
       signal.throwIfAborted();
     }
     totalDurationSeconds += period.durationSeconds ?? 0;
@@ -121,7 +165,10 @@ export async function downloadProtectedMedia(
   const tempPath = join(outputDir, `.${safeTitle}.tmp.mkv`);
   const finalPath = join(outputDir, `${safeTitle}.mkv`);
   await ffmpegMux(config, inputs, tempPath, signal, progress => {
-    onProgress({ bytes: bytesState.value + progress.bytes, progress: progress.progress });
+    const muxProgress = progress.progress !== undefined
+      ? 90 + Math.min(9, Math.floor((progress.progress / 100) * 9))
+      : 92;
+    onProgress({ bytes: bytesState.value, progress: muxProgress });
   }, totalDurationSeconds || undefined);
   await validateMediaFile(config, tempPath, signal);
   await rename(tempPath, finalPath);

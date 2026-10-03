@@ -8,6 +8,7 @@
   let queuePollInterval = null;
   let activeQueueJobsCount = 0;
   let serverConfig = { categories: ['tv', 'movies'], downloadsDir: '' };
+  let previousJobsMap = new Map();
 
   // DOM Elements
   const authModal = document.getElementById('auth-modal');
@@ -458,6 +459,23 @@
       const jobs = res.jobs || [];
       activeQueueJobsCount = jobs.filter(j => j.status === 'Downloading' || j.status === 'Queued').length;
 
+      // Detect completed jobs
+      const currentJobIds = new Set(jobs.map(j => j.id));
+      for (const [prevId, prevJob] of previousJobsMap.entries()) {
+        if (!currentJobIds.has(prevId) && (prevJob.status === 'Downloading' || prevJob.status === 'Queued')) {
+          apiRequest('/api/ui/downloads').then(dlRes => {
+            const completed = (dlRes.downloads || []).find(d => d.id === prevId && d.status === 'Completed');
+            if (completed) {
+              showToast(`🎉 Stahování "${prevJob.title}" bylo dokončeno! Soubor najdete v záložce "Stažené soubory".`, 'success');
+              if (activeTab === 'downloads-tab') {
+                loadDownloads();
+              }
+            }
+          }).catch(() => {});
+        }
+      }
+      previousJobsMap = new Map(jobs.map(j => [j.id, { title: j.title, status: j.status }]));
+
       // Update badge
       if (activeQueueJobsCount > 0) {
         queueCountBadge.textContent = activeQueueJobsCount;
@@ -488,9 +506,14 @@
       queueListContainer.innerHTML = `
         <div class="empty-state">
           <p>Fronta stahování je prázdná.</p>
-          <p class="text-muted mt-2">Přidejte pořady přes záložku "Hledat & URL".</p>
+          <p class="text-muted mt-2">Všechna stahování byla dokončena nebo můžete přidat nové pořady přes záložku <a href="#" id="link-go-search" style="color: #38bdf8; text-decoration: underline;">Hledat & URL</a>.</p>
+          <p class="text-muted mt-1">Dokončené soubory najdete v záložce <a href="#" id="link-go-downloads" style="color: #38bdf8; text-decoration: underline;">Stažené soubory</a>.</p>
         </div>
       `;
+      const linkSearch = document.getElementById('link-go-search');
+      if (linkSearch) linkSearch.addEventListener('click', (e) => { e.preventDefault(); switchTab('search-tab'); });
+      const linkDl = document.getElementById('link-go-downloads');
+      if (linkDl) linkDl.addEventListener('click', (e) => { e.preventDefault(); switchTab('downloads-tab'); });
       return;
     }
 
@@ -504,7 +527,8 @@
         : '<span class="badge badge-secondary">Čeká</span>';
 
       const downloadedStr = formatBytes(job.bytes);
-      const totalStr = formatBytes(job.totalBytes);
+      const totalStr = job.totalBytes > 0 ? formatBytes(job.totalBytes) : '';
+      const sizeDisplay = totalStr ? `${downloadedStr} / ${totalStr}` : downloadedStr;
       const speedStr = isDownloading && job.speed > 0 ? formatSpeed(job.speed) : '';
 
       html += `
@@ -525,7 +549,7 @@
               <div class="progress-fill" style="width: ${job.progress}%;"></div>
             </div>
             <div class="progress-text">
-              <span>${downloadedStr} / ${totalStr}</span>
+              <span>${sizeDisplay}</span>
               <span><strong>${job.progress}%</strong></span>
             </div>
           </div>

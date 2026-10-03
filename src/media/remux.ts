@@ -26,9 +26,10 @@ function bestAudioStream(streams: ProbedStream[], preferredLanguage: string | un
 async function downloadClearTrack(
   track: ProtectedTrack, headers: Record<string, string> | undefined, outputPath: string,
   signal: AbortSignal, onBytes: (bytes: number) => void,
+  onSegment?: (completedIndex: number, totalCount: number) => void,
 ): Promise<string> {
   const segments = track.initSegment ? [track.initSegment, ...track.mediaSegments] : track.mediaSegments;
-  await downloadSegmentsConcat(segments, headers, outputPath, signal, onBytes);
+  await downloadSegmentsConcat(segments, headers, outputPath, signal, onBytes, undefined, onSegment);
   return outputPath;
 }
 
@@ -51,17 +52,62 @@ async function downloadClearDash(
   const workDir = join(outputDir, `.${safeTitle}.work`);
   await mkdir(workDir, { recursive: true });
   const bytesState = { value: 0 };
-  const reportBytes = (delta: number): void => { bytesState.value += delta; onProgress({ bytes: bytesState.value }); };
+  let totalSegments = 0;
+  for (const { video, audio } of selections) {
+    totalSegments += (video.initSegment ? 1 : 0) + video.mediaSegments.length;
+    if (audio) totalSegments += (audio.initSegment ? 1 : 0) + audio.mediaSegments.length;
+  }
+
+  let completedSegmentsCount = 0;
+  let currentTrackBase = 0;
+
+  const emitProgress = (): void => {
+    let progressPercent: number | undefined;
+    let estimatedTotal: number | undefined;
+    if (totalSegments > 0) {
+      progressPercent = Math.min(90, Math.floor((completedSegmentsCount / totalSegments) * 90));
+      if (completedSegmentsCount >= 2 && bytesState.value > 0) {
+        estimatedTotal = Math.round((bytesState.value / completedSegmentsCount) * totalSegments);
+      }
+    }
+    onProgress({ bytes: bytesState.value, progress: progressPercent, totalBytes: estimatedTotal });
+  };
+
+  const reportBytes = (delta: number): void => {
+    bytesState.value += delta;
+    emitProgress();
+  };
+
+  const createSegmentTracker = () => {
+    const base = currentTrackBase;
+    return (completedInTrack: number) => {
+      completedSegmentsCount = base + completedInTrack;
+      emitProgress();
+    };
+  };
 
   const videoPaths: string[] = [];
   const audioPaths: string[] = [];
   let totalDurationSeconds = 0;
   for (const [index, { video, audio }] of selections.entries()) {
     const suffix = selections.length > 1 ? `-p${index}` : '';
-    videoPaths.push(await downloadClearTrack(video, source.headers, join(workDir, `video${suffix}.mp4`), signal, reportBytes));
+    const videoTrackTotal = (video.initSegment ? 1 : 0) + video.mediaSegments.length;
+    videoPaths.push(await downloadClearTrack(
+      video, source.headers, join(workDir, `video${suffix}.mp4`), signal,
+      reportBytes, createSegmentTracker(),
+    ));
+    currentTrackBase += videoTrackTotal;
+    completedSegmentsCount = currentTrackBase;
     signal.throwIfAborted();
+
     if (audio) {
-      audioPaths.push(await downloadClearTrack(audio, source.headers, join(workDir, `audio${suffix}.mp4`), signal, reportBytes));
+      const audioTrackTotal = (audio.initSegment ? 1 : 0) + audio.mediaSegments.length;
+      audioPaths.push(await downloadClearTrack(
+        audio, source.headers, join(workDir, `audio${suffix}.mp4`), signal,
+        reportBytes, createSegmentTracker(),
+      ));
+      currentTrackBase += audioTrackTotal;
+      completedSegmentsCount = currentTrackBase;
       signal.throwIfAborted();
     }
     totalDurationSeconds += video.durationSeconds || 0;
@@ -87,7 +133,10 @@ async function downloadClearDash(
   // `progress.bytes` (bytes written to the new container) must not be added on top of
   // `bytesState.value` (bytes already fetched), or the same data would be counted twice.
   await ffmpegMux(config, inputs, tempPath, signal, progress => {
-    onProgress({ bytes: bytesState.value, progress: progress.progress });
+    const muxProgress = progress.progress !== undefined
+      ? 90 + Math.min(9, Math.floor((progress.progress / 100) * 9))
+      : 92;
+    onProgress({ bytes: bytesState.value, progress: muxProgress });
   }, totalDurationSeconds || undefined);
   await validateMediaFile(config, tempPath, signal);
   await rename(tempPath, finalPath);

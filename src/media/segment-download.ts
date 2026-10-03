@@ -112,6 +112,7 @@ async function writeSegmentBody(
 export async function downloadSegmentsConcat(
   segments: MediaSegment[], headers: Record<string, string> | undefined, outputPath: string, signal: AbortSignal,
   onBytes?: (bytes: number) => void, resumeStatePath?: string,
+  onSegment?: (completedIndex: number, totalCount: number) => void,
 ): Promise<void> {
   const segmentsHash = hash(
     'sha256',
@@ -130,6 +131,7 @@ export async function downloadSegmentsConcat(
           startIndex = state.completed;
           await truncate(outputPath, state.bytes);
           bytesWritten = state.bytes;
+          onSegment?.(startIndex, segments.length);
         }
         // Otherwise the checkpoint is inconsistent with the actual file (would zero-pad on
         // truncate): fall through and restart this track from scratch below.
@@ -173,6 +175,7 @@ export async function downloadSegmentsConcat(
       if (resumeStatePath) {
         await writeResumeStateAtomic(resumeStatePath, { completed: index + 1, bytes: bytesWritten, segmentsHash });
       }
+      onSegment?.(index + 1, segments.length);
     }
   } catch (error) {
     failed = true;
