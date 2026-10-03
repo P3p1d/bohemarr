@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import { Indexer, xml } from './indexer.ts';
 import { Sabnzbd } from './sabnzbd.ts';
 import { SeriesBindings } from './series-binding.ts';
+import { registerUiRoutes } from './ui-routes.ts';
 import type { Queue } from './queue.ts';
 import type { Store } from './store.ts';
 import type { Config, Provider } from './types.ts';
@@ -16,8 +17,10 @@ export async function createServer(config: Config, store: Store, queue: Queue, p
   });
   const indexer = new Indexer(config, store, providers, new SeriesBindings(store.database));
   const sabnzbd = new Sabnzbd(config, queue, indexer);
+  registerUiRoutes(app, config, store, queue, providers, indexer);
   app.addHook('onRequest', async (request, reply) => {
-    if (request.url.split('?')[0] === '/health') return;
+    const pathname = request.url.split('?')[0]!;
+    if (pathname === '/health' || pathname === '/' || pathname.startsWith('/ui/') || pathname.startsWith('/assets/')) return;
     const query = request.query as Record<string, unknown>;
     const provided = query.apikey ?? request.headers['x-api-key'];
     const actual = Buffer.from(typeof provided === 'string' ? provided : '');

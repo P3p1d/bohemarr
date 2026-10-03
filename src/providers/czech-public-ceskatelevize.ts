@@ -102,7 +102,7 @@ function episodeUrl(programUri: string, id: string): string {
   return `${programUri}${id}/`;
 }
 
-interface ShowMetadata { idec: string; seasons: string[]; year?: number }
+interface ShowMetadata { idec: string; seasons: string[]; year?: number; title?: string }
 
 async function fetchShowMetadata(programUri: string, signal: AbortSignal): Promise<ShowMetadata | null> {
   const html = await fetchText(programUri, signal, { headers: { referer: REFERER } });
@@ -114,10 +114,13 @@ async function fetchShowMetadata(programUri: string, signal: AbortSignal): Promi
   if (!idec) return null;
   let seasons: string[] = [];
   let year: number | undefined;
+  let title: string | undefined;
   try {
     const parsed: unknown = JSON.parse(script);
     const productionYear = Number(getPath(parsed, 'props.pageProps.data.show.year'));
     if (Number.isSafeInteger(productionYear) && productionYear > 0) year = productionYear;
+    const showTitle = getPath(parsed, 'props.pageProps.data.show.title');
+    if (typeof showTitle === 'string' && showTitle) title = showTitle;
     const seasonList = getPath(parsed, 'props.pageProps.data.show.seasons');
     if (Array.isArray(seasonList)) {
       seasons = seasonList
@@ -130,7 +133,7 @@ async function fetchShowMetadata(programUri: string, signal: AbortSignal): Promi
   } catch {
     // The seasons block is optional context; idec alone is enough to continue.
   }
-  return { idec, seasons, year };
+  return { idec, seasons, year, title };
 }
 
 function buildEpisodeRelease(
@@ -237,9 +240,46 @@ async function* iterateShows(query: CatalogueQuery, signal: AbortSignal): AsyncG
   }
 }
 
+async function resolveCtUrl(
+  url: URL,
+  signal: AbortSignal,
+): Promise<{ title: string; kind: MediaKind; releases: Release[] } | undefined> {
+  if (!/(^|\.)ceskatelevize\.cz$/i.test(url.hostname)) return undefined;
+  const match = /\/porady\/([^/]+)(?:\/([^/]+))?/i.exec(url.pathname);
+  if (!match) return undefined;
+  const slug = match[1]!;
+  const pUrl = programUrl(slug);
+  const meta = await fetchShowMetadata(pUrl, signal);
+  if (!meta) return undefined;
+  const show: CtShow = { id: slug, slug, title: meta.title || slug };
+  const releases: Release[] = [];
+  for await (const release of iterateShowEpisodes(show, { q: '' }, signal)) {
+    releases.push(release);
+  }
+  const kind: MediaKind = meta.seasons.length > 0 ? 'tv' : 'movie';
+  return { title: show.title, kind, releases };
+}
+
+async function ctReleaseForUrl(url: URL, query: CatalogueQuery, signal: AbortSignal): Promise<Release | undefined> {
+  const resolved = await resolveCtUrl(url, signal);
+  if (!resolved || !resolved.releases.length) return undefined;
+  const match = /\/porady\/([^/]+)\/([^/]+)/i.exec(url.pathname);
+  const episodeId = match?.[2];
+  if (episodeId) {
+    const found = resolved.releases.find(r => r.url.includes(`/${episodeId}/`));
+    if (found) return found;
+  }
+  if (query.season !== undefined && query.episode !== undefined) {
+    const found = resolved.releases.find(r => r.season === query.season && r.episode === query.episode);
+    if (found) return found;
+  }
+  return resolved.releases[0];
+}
+
 const ceskaTelevizeCatalogue: Catalogue<CtShow> = {
   programs: (query, signal) => iterateShows(query, signal),
   releases: (show, query, signal) => iterateShowEpisodes(show, query, signal),
+  releaseForUrl: (url, query, signal) => ctReleaseForUrl(url, query, signal),
 };
 
 // --- Playback resolution (VOD.* in the upstream engine) ---------------------------------------
@@ -481,6 +521,7 @@ export function createCeskaTelevizeProvider(config: ProviderConfig = {}): Provid
     id: 'ceskatelevize',
     name: 'Česká televize',
     catalogue: ceskaTelevizeCatalogue,
+    resolveUrl: (url, signal) => resolveCtUrl(url, signal),
     async resolve(release, signal) { return resolveCeskaTelevize(release, signal); },
   };
 }

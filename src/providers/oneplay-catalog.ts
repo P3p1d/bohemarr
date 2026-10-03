@@ -360,6 +360,9 @@ export async function fetchEpisodesForProgram(
     const items = getDirectEpisodes(contentData).map(
       (direct): OneplayEpisode => ({ uri: direct.uri, title: direct.title, season: undefined, episodeNumber: undefined }),
     );
+    if (items.length === 0 && (programInfo.type === 'episode' || programInfo.title)) {
+      items.push({ uri: programUri, title: programInfo.title, season: undefined, episodeNumber: undefined });
+    }
     return { kind: 'episodes', title: programInfo.title ?? '', items };
   }
 

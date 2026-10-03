@@ -7,11 +7,16 @@ import type { Config, DownloadMedia, Job, Provider, Release } from './types.ts';
 
 export class Queue {
   private readonly active = new Map<string, { controller: AbortController; task: Promise<void> }>();
+  private readonly speeds = new Map<string, number>();
   private stopping = false;
   readonly store: Store;
   private readonly config: Config;
   private readonly providers: Map<string, Provider>;
   private readonly download: DownloadMedia;
+
+  getSpeed(jobId: string): number {
+    return this.speeds.get(jobId) ?? 0;
+  }
 
   constructor(store: Store, config: Config, providers: Map<string, Provider>, download: DownloadMedia) {
     this.store = store;
@@ -63,9 +68,19 @@ export class Queue {
       if (!sources.length) throw new Error('Provider returned no playable media');
       await mkdir(job.storage, { recursive: true });
       let lastUpdate = 0;
+      let lastBytes = 0;
+      let lastTimestamp = Date.now();
       const file = await this.download(sources, job.storage, releaseTitle(job.release), signal, progress => {
-        if (Date.now() - lastUpdate < 500 || this.store.job(job.id)?.status !== 'Downloading') return;
-        lastUpdate = Date.now();
+        const now = Date.now();
+        if (now - lastUpdate < 500 || this.store.job(job.id)?.status !== 'Downloading') return;
+        const timeDiff = (now - lastTimestamp) / 1000;
+        if (timeDiff > 0 && progress.bytes >= lastBytes) {
+          const speed = Math.max(0, Math.round((progress.bytes - lastBytes) / timeDiff));
+          this.speeds.set(job.id, speed);
+        }
+        lastUpdate = now;
+        lastTimestamp = now;
+        lastBytes = progress.bytes;
         const update: Partial<Job> = { bytes: progress.bytes };
         if (progress.totalBytes !== undefined) update.totalBytes = progress.totalBytes;
         if (progress.progress !== undefined) update.progress = Math.max(0, Math.min(99, progress.progress));
@@ -77,13 +92,15 @@ export class Queue {
       if (this.store.job(job.id)?.status === 'Downloading') {
         const result = await stat(file);
         if (!result.isFile() || result.size === 0) throw new Error('Downloader produced no media file');
-        this.store.updateJob(job.id, { status: 'Completed', progress: 100, bytes: result.size, totalBytes: result.size, error: '', finishedAt: Date.now() });
+        this.store.updateJob(job.id, { status: 'Completed', progress: 100, bytes: result.size, totalBytes: result.size, error: '', finishedAt: Date.now(), file });
       }
     } catch (error) {
       if (!signal.aborted && this.store.job(job.id)?.status === 'Downloading') {
         const message = error instanceof Error ? error.message : String(error);
         this.store.updateJob(job.id, { status: 'Failed', error: message, finishedAt: Date.now() });
       }
+    } finally {
+      this.speeds.delete(job.id);
     }
   }
 

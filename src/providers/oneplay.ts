@@ -1,5 +1,5 @@
 import type {
-  Catalogue, CatalogueQuery, MediaSource, Program, Provider, ProviderConfig, Release, SeriesIdentity, ProgramMetadata,
+  Catalogue, CatalogueQuery, MediaKind, MediaSource, Program, Provider, ProviderConfig, Release, SeriesIdentity, ProgramMetadata,
 } from '../types.ts';
 import { releaseId } from './common.ts';
 import { isSeriesCandidate } from '../series-identity.ts';
@@ -103,11 +103,67 @@ async function lookupBoundProgram(
   return { id, uri: id, title: result.title, kind: 'tv', listing: result };
 }
 
+async function resolveOneplayUrl(
+  pool: OneplayConnectionPool,
+  session: OneplaySession,
+  url: URL,
+  signal: AbortSignal,
+): Promise<{ title: string; kind: MediaKind; releases: Release[] } | undefined> {
+  if (!/(^|\.)oneplay\.(cz|test)$/i.test(url.hostname)) return undefined;
+  await session.ensureAuthenticated(true, signal);
+  const targetUri = url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
+  let result: ProgramEpisodes;
+  try {
+    result = await fetchEpisodesForProgram(pool, targetUri, signal);
+  } catch {
+    result = await fetchEpisodesForProgram(pool, url.href, signal);
+  }
+  if (result.kind === 'movie') {
+    const release: Release = {
+      id: releaseId(PROVIDER_ID, url.href),
+      provider: PROVIDER_ID,
+      title: result.title || 'Film',
+      url: url.href,
+      kind: 'movie',
+    };
+    return { title: result.title || 'Film', kind: 'movie', releases: [release] };
+  }
+  const program: OneplayProgram = { uri: targetUri, title: result.title, kind: 'tv' };
+  const releases = result.items.map(item => toEpisodeRelease(program, item));
+  return { title: result.title, kind: 'tv', releases };
+}
+
+async function oneplayReleaseForUrl(
+  pool: OneplayConnectionPool,
+  session: OneplaySession,
+  url: URL,
+  query: CatalogueQuery,
+  signal: AbortSignal,
+): Promise<Release | undefined> {
+  const resolved = await resolveOneplayUrl(pool, session, url, signal);
+  if (!resolved || !resolved.releases.length) return undefined;
+  if (resolved.kind === 'movie') return resolved.releases[0];
+  if (query.season !== undefined && query.episode !== undefined) {
+    const match = resolved.releases.find(r => r.season === query.season && r.episode === query.episode);
+    if (match) return match;
+  }
+  if (query.season !== undefined) {
+    const match = resolved.releases.find(r => r.season === query.season);
+    if (match) return match;
+  }
+  if (query.episode !== undefined) {
+    const match = resolved.releases.find(r => r.episode === query.episode);
+    if (match) return match;
+  }
+  return resolved.releases[0];
+}
+
 function createOneplayCatalogue(pool: OneplayConnectionPool, session: OneplaySession): Catalogue<OneplayCatalogueProgram> {
   return {
     programs: (_query: CatalogueQuery, signal: AbortSignal) => catalogueProgramsOf(pool, signal),
     program: (id, signal) => lookupBoundProgram(pool, session, id, signal),
     releases: (program, _query: CatalogueQuery, signal: AbortSignal) => catalogueReleasesOf(pool, session, program, signal),
+    releaseForUrl: (url, query, signal) => oneplayReleaseForUrl(pool, session, url, query, signal),
   };
 }
 
@@ -186,6 +242,7 @@ export function createOneplayProviders(configs: Record<string, ProviderConfig>):
     catalogue: createOneplayCatalogue(pool, session),
     seriesCandidates: (identity, signal) => seriesCandidates(pool, session, identity, signal),
     resolve: (release, signal) => resolve(pool, session, release, signal),
+    resolveUrl: (url, signal) => resolveOneplayUrl(pool, session, url, signal),
     close: () => pool.close(),
   };
 

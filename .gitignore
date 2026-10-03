@@ -5,6 +5,7 @@
 # Local runtime state: private configuration, API key, database, downloads
 /data/
 /downloads/
+config.json
 
 # Local deployment settings (may contain the API key or host paths)
 .env

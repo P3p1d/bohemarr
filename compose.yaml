@@ -5,7 +5,7 @@ services:
     init: false
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8787:8787"
+      - "8787:8787"
     environment:
       PUBLIC_URL: ${PUBLIC_URL:-http://bohemarr:8787}
       API_KEY: ${API_KEY:-}
@@ -14,12 +14,12 @@ services:
       - config:/data
       - ${DOWNLOADS_PATH:-./downloads}:/downloads
     networks:
-      - media
+      - yams_network
     stop_grace_period: 30s
 
 volumes:
   config:
 
 networks:
-  media:
-    name: bohemarr
+  yams_network:
+    external: true

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
 import { Store } from './store.ts';
-import { releaseTitle, normalizeLanguage, sanitizeFilename } from './providers/common.ts';
+import { releaseTitle, normalizeLanguage, sanitizeFilename, isValidDate } from './providers/common.ts';
 import { inspectMediaSources } from './media/metadata.ts';
 import { MovieBindings } from './movie-binding.ts';
 import type { BindingSearch, SeriesBindings } from './series-binding.ts';
@@ -55,12 +55,7 @@ export class Indexer {
     const daily = params.ep?.match(/^(\d{2})\/(\d{2})$/);
     const airDate = daily && season !== undefined ? `${season}-${daily[1]}-${daily[2]}` : undefined;
     if (daily) {
-      if (!airDate || season! < 1900) throw new Error('Invalid daily episode date');
-      try {
-        Temporal.PlainDate.from(airDate, { overflow: 'reject' });
-      } catch {
-        throw new Error('Invalid daily episode date');
-      }
+      if (!airDate || season! < 1900 || !isValidDate(airDate)) throw new Error('Invalid daily episode date');
     }
     const query: SearchQuery = { q: params.q || '', kind, season: airDate ? undefined : season,
       episode: airDate ? undefined : integer('ep'), airDate, limit: offset + limit, offset: 0 };
@@ -98,7 +93,7 @@ export class Indexer {
   }
 
   /** Inspects current source variants; durable release URLs can acquire better renditions later. */
-  private async enrich(release: Release, signal: AbortSignal): Promise<void> {
+  async enrich(release: Release, signal: AbortSignal): Promise<void> {
     const provider = this.providers.get(release.provider);
     if (!provider) return;
     try {

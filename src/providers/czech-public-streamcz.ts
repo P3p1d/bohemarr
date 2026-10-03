@@ -357,10 +357,68 @@ async function* streamCzReleases(program: StreamCzProgram, signal: AbortSignal, 
   cache.saveEpisodes(program.id, discovered);
 }
 
+async function resolveStreamUrl(
+  url: URL,
+  cache: StreamCzCache,
+  signal: AbortSignal,
+): Promise<{ title: string; kind: MediaKind; releases: Release[] } | undefined> {
+  if (!/(^|\.)stream\.cz$/i.test(url.hostname)) return undefined;
+  const segments = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+  if (!segments.length || !segments[0]) return undefined;
+  const urlName = segments[0]!;
+  for (const scope of ['all', 'tv', 'movie'] as const) {
+    const list = cache.read(scope);
+    const found = list?.find(p => p.urlName === urlName || p.urlName === `/${urlName}` || p.urlName.endsWith(`/${urlName}`));
+    if (found) {
+      const releases: Release[] = [];
+      for await (const r of streamCzReleases(found, signal, cache)) releases.push(r);
+      return { title: found.title, kind: found.kind, releases };
+    }
+  }
+  try {
+    const html = await fetchText(url.toString(), signal, { headers: { referer: REFERER } });
+    const state = appServerState(html);
+    const tag = getPath(state, 'fetchable.tag.data') ?? getPath(state, 'tag.data');
+    const id = getPath(tag, 'id');
+    const name = getPath(tag, 'name');
+    if (typeof id === 'string' && typeof name === 'string') {
+      const prog: StreamCzProgram = { id, title: name, kind: 'tv', urlName };
+      const releases: Release[] = [];
+      for await (const r of streamCzReleases(prog, signal, cache)) releases.push(r);
+      return { title: name, kind: 'tv', releases };
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+async function streamCzReleaseForUrl(
+  url: URL,
+  query: CatalogueQuery,
+  cache: StreamCzCache,
+  signal: AbortSignal,
+): Promise<Release | undefined> {
+  const resolved = await resolveStreamUrl(url, cache, signal);
+  if (!resolved || !resolved.releases.length) return undefined;
+  const segments = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+  if (segments.length > 1) {
+    const epSlug = segments[1]!;
+    const found = resolved.releases.find(r => r.url.includes(epSlug));
+    if (found) return found;
+  }
+  if (query.season !== undefined && query.episode !== undefined) {
+    const found = resolved.releases.find(r => r.season === query.season && r.episode === query.episode);
+    if (found) return found;
+  }
+  return resolved.releases[0];
+}
+
 function streamCzCatalogue(cache: StreamCzCache): Catalogue<StreamCzProgram> {
   return {
     programs: (query, signal) => streamCzPrograms(query, signal, cache),
     releases: (program, _query, signal) => streamCzReleases(program, signal, cache),
+    releaseForUrl: (url, query, signal) => streamCzReleaseForUrl(url, query, cache, signal),
   };
 }
 
@@ -444,10 +502,12 @@ async function resolveStreamCz(release: Release, signal: AbortSignal): Promise<M
  */
 export function createStreamCzProvider(config: ProviderConfig = {}, database: DatabaseSync, timing: StreamCzCacheTiming = {}): Provider | null {
   if (config.enabled === false) return null;
+  const cache = new StreamCzCache(database, timing);
   return {
     id: 'streamcz',
     name: 'Stream.cz',
-    catalogue: streamCzCatalogue(new StreamCzCache(database, timing)),
+    catalogue: streamCzCatalogue(cache),
+    resolveUrl: (url, signal) => resolveStreamUrl(url, cache, signal),
     async resolve(release, signal) { return resolveStreamCz(release, signal); },
   };
 }

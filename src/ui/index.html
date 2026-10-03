@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bohemarr WebUI</title>
+  <link rel="stylesheet" href="/ui/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📺</text></svg>">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <span class="brand-icon">📺</span>
+        <span class="brand-name">Bohemarr</span>
+        <span class="brand-tag">v1.0</span>
+      </div>
+
+      <nav class="nav-links">
+        <button class="nav-btn active" data-tab="search-tab">
+          <span class="icon">🔍</span> Hledat & URL
+        </button>
+        <button class="nav-btn" data-tab="queue-tab">
+          <span class="icon">⏳</span> Fronta
+          <span class="badge queue-badge" id="queue-count-badge" style="display: none;">0</span>
+        </button>
+        <button class="nav-btn" data-tab="downloads-tab">
+          <span class="icon">💾</span> Stažené soubory
+        </button>
+      </nav>
+
+      <div class="nav-status">
+        <div class="speed-indicator" id="nav-speed" style="display: none;">
+          <span class="speed-dot"></span>
+          <span id="nav-speed-text">0 MB/s</span>
+        </div>
+        <button class="btn btn-outline btn-sm" id="btn-open-settings" title="Nastavení API klíče">
+          🔑 API Klíč
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="content-container">
+
+      <!-- TAB 1: Search & Direct URL Resolver -->
+      <section id="search-tab" class="tab-pane active">
+        <!-- Direct URL Resolver Card -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <h2>🔗 Přímé stažení z URL</h2>
+            <p class="subtitle">Vložte odkaz na pořad nebo video z Oneplay, České televize, Stream.cz nebo YouTube</p>
+          </div>
+          <div class="card-body">
+            <form id="url-resolver-form" class="resolver-form">
+              <div class="input-group">
+                <input
+                  type="url"
+                  id="direct-url-input"
+                  class="form-control"
+                  placeholder="např. https://www.oneplay.cz/porad/metoda-markovic-hojer-100234 nebo https://www.ceskatelevize.cz/porady/..."
+                  required
+                >
+                <button type="submit" class="btn btn-primary" id="btn-resolve-url">
+                  <span class="btn-text">Načíst pořad</span>
+                  <span class="spinner" style="display: none;"></span>
+                </button>
+              </div>
+            </form>
+
+            <div id="url-resolved-result" class="mt-4" style="display: none;">
+              <!-- Dynamically populated resolved show card -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Fulltext Search Card -->
+        <div class="card">
+          <div class="card-header">
+            <h2>🔎 Vyhledávání v archivech</h2>
+            <p class="subtitle">Prohledávejte aktivní archivy poskytovatelů podle názvu pořadu nebo filmu</p>
+          </div>
+          <div class="card-body">
+            <form id="search-form" class="search-form">
+              <div class="search-inputs">
+                <input
+                  type="text"
+                  id="search-query-input"
+                  class="form-control flex-grow"
+                  placeholder="Zadejte název pořadu, filmu nebo epizody..."
+                  required
+                >
+                <select id="search-category-select" class="form-control w-auto">
+                  <option value="">Všechny kategorie</option>
+                  <option value="tv">Seriály / Pořady</option>
+                  <option value="movies">Filmy</option>
+                </select>
+                <select id="search-provider-select" class="form-control w-auto">
+                  <option value="">Všichni provideři</option>
+                </select>
+                <button type="submit" class="btn btn-primary" id="btn-search">
+                  <span class="btn-text">Vyhledat</span>
+                  <span class="spinner" style="display: none;"></span>
+                </button>
+              </div>
+            </form>
+
+            <div id="search-results-container" class="mt-4">
+              <!-- Dynamically populated search results -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: Queue / Active Downloads -->
+      <section id="queue-tab" class="tab-pane">
+        <div class="card">
+          <div class="card-header d-flex justify-between items-center">
+            <div>
+              <h2>⏳ Fronta stahování</h2>
+              <p class="subtitle">Přehled probíhajících a čekajících úloh stahování v reálném čase</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-outline btn-sm" id="btn-pause-all-queue">
+                ⏸️ Pozastavit vše
+              </button>
+              <button class="btn btn-outline btn-sm" id="btn-resume-all-queue">
+                ▶️ Spustit vše
+              </button>
+              <button class="btn btn-outline btn-sm" id="btn-refresh-queue" title="Obnovit frontu">
+                🔄 Obnovit
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div id="queue-list-container">
+              <!-- Queue items populated by JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: Downloads / History -->
+      <section id="downloads-tab" class="tab-pane">
+        <div class="card">
+          <div class="card-header d-flex justify-between items-center">
+            <div>
+              <h2>💾 Stažené soubory & Historie</h2>
+              <p class="subtitle">Dokončená videa s cestou na disku pro transkódování a možností stažení do PC</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-outline btn-sm" id="btn-refresh-downloads" title="Obnovit historii">
+                🔄 Obnovit
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div id="downloads-list-container">
+              <!-- Completed downloads populated by JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- API Key Modal Dialog -->
+  <div id="auth-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>🔐 Přihlášení k Bohemarr</h3>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-3">Zadejte prosím API klíč vašeho Bohemarr serveru pro přístup k vyhledávání a stahování.</p>
+        <div class="form-group mb-3">
+          <label for="modal-api-key-input">API Klíč (32 znaků):</label>
+          <input
+            type="password"
+            id="modal-api-key-input"
+            class="form-control"
+            placeholder="např. 01234567890123456789012345678901"
+            autocomplete="off"
+            required
+          >
+        </div>
+        <div id="auth-error-msg" class="alert alert-danger" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary w-full" id="btn-save-api-key">
+          Uložit a pokračovat
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>

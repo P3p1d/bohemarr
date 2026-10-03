@@ -125,6 +125,7 @@ export interface Provider {
    */
   seriesCandidates?(identity: SeriesIdentity, signal: AbortSignal): Promise<ProgramMetadata[]>;
   resolve(release: Release, signal: AbortSignal): Promise<MediaSource[]>;
+  resolveUrl?(url: URL, signal: AbortSignal): Promise<{ title: string; kind: MediaKind; releases: Release[] } | undefined>;
   close?(): Promise<void>;
 }
 
@@ -171,6 +172,7 @@ export interface Job {
   createdAt: number;
   updatedAt: number;
   finishedAt?: number;
+  file?: string;
 }
 
 export interface MediaSegment {

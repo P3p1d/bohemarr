@@ -19,18 +19,31 @@ export function normalize(value: string): string {
   return value.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
+export function isValidDate(value: string): boolean {
+  if (typeof (globalThis as any).Temporal !== 'undefined' && 'PlainDate' in (globalThis as any).Temporal) {
+    try {
+      (globalThis as any).Temporal.PlainDate.from(value, { overflow: 'reject' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 export function episodeAirDate(release: Release): string | undefined {
   if (release.kind !== 'tv') return undefined;
   const iso = (release.airDate || release.title).match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
   const czech = !iso ? release.title.match(/\b(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\b/) : null;
   const value = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : czech ? `${czech[3]}-${czech[2]!.padStart(2, '0')}-${czech[1]!.padStart(2, '0')}` : undefined;
   if (!value) return undefined;
-  try {
-    Temporal.PlainDate.from(value, { overflow: 'reject' });
-    return value;
-  } catch {
-    return undefined;
-  }
+  return isValidDate(value) ? value : undefined;
 }
 
 const LANGUAGE_CODES: Record<string, string> = {
