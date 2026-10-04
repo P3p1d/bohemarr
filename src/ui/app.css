@@ -688,15 +688,40 @@ body {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  max-width: 480px;
+  max-width: 520px;
   width: 100%;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
   overflow: hidden;
 }
 
 .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.btn-close-modal {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.btn-close-modal:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
 }
 
 .modal-body {

@@ -151,6 +151,25 @@ test('UI: config and providers endpoints return current configuration', async ()
   const configData = JSON.parse(configRes.body);
   assert.deepEqual(configData.categories, ['tv', 'movies']);
   assert.equal(configData.version, '1.3.0');
+  assert.equal(typeof configData.autoHardlink, 'boolean');
+
+  // POST /api/ui/config updates autoHardlink and seedingDir
+  const updateRes = await app.inject({
+    method: 'POST',
+    url: '/api/ui/config',
+    headers: { ...authHeader, 'content-type': 'application/json' },
+    payload: JSON.stringify({ autoHardlink: false, seedingDir: '/custom/torrents' }),
+  });
+  assert.equal(updateRes.statusCode, 200);
+  const updateData = JSON.parse(updateRes.body);
+  assert.equal(updateData.autoHardlink, false);
+  assert.equal(updateData.seedingDir, '/custom/torrents');
+
+  // Verify GET /api/ui/config reflects updated settings
+  const refRes = await app.inject({ method: 'GET', url: '/api/ui/config', headers: authHeader });
+  const refData = JSON.parse(refRes.body);
+  assert.equal(refData.autoHardlink, false);
+  assert.equal(refData.seedingDir, '/custom/torrents');
 
   // /api/ui/version
   const verRes = await app.inject({ method: 'GET', url: '/api/ui/version', headers: authHeader });

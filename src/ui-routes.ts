@@ -1,5 +1,5 @@
 import { createReadStream, existsSync } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, join, resolve, basename } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Config, Job, MediaKind, Provider, Release, SearchQuery } from './types.ts';
@@ -105,6 +105,45 @@ export function registerUiRoutes(
       downloadsDir: config.downloadsDir,
       seedingDir: config.seedingDir,
       autoHardlink: config.autoHardlink ?? true,
+    };
+  });
+
+  app.post('/api/ui/config', async (request: FastifyRequest<{
+    Body: { autoHardlink?: boolean; seedingDir?: string }
+  }>, reply) => {
+    const body = request.body || {};
+    if (typeof body.autoHardlink === 'boolean') {
+      config.autoHardlink = body.autoHardlink;
+    }
+    if (typeof body.seedingDir === 'string' && body.seedingDir.trim()) {
+      config.seedingDir = body.seedingDir.trim();
+    }
+
+    try {
+      const configFile = process.env.CONFIG_FILE || join(config.dataDir, 'config.json');
+      let currentRaw: Record<string, unknown> = {};
+      try {
+        if (existsSync(configFile)) {
+          currentRaw = JSON.parse(await readFile(configFile, 'utf8'));
+        }
+      } catch {}
+      currentRaw.autoHardlink = config.autoHardlink;
+      currentRaw.seedingDir = config.seedingDir;
+      await writeFile(configFile, JSON.stringify(currentRaw, null, 2), { mode: 0o600 });
+    } catch (err) {
+      console.warn('[Config] Failed to persist config.json:', err);
+    }
+
+    if (config.autoHardlink && config.seedingDir) {
+      try {
+        await mkdir(config.seedingDir, { recursive: true });
+      } catch {}
+    }
+
+    return {
+      success: true,
+      autoHardlink: config.autoHardlink,
+      seedingDir: config.seedingDir,
     };
   });
 

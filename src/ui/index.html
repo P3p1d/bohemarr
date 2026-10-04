@@ -35,8 +35,8 @@
           <span class="speed-dot"></span>
           <span id="nav-speed-text">0 MB/s</span>
         </div>
-        <button class="btn btn-outline btn-sm" id="btn-open-settings" title="Nastavení API klíče">
-          🔑 API Klíč
+        <button class="btn btn-outline btn-sm" id="btn-open-settings" title="Nastavení aplikace a API klíče">
+          ⚙️ Nastavení
         </button>
       </div>
     </header>
@@ -166,32 +166,63 @@
     </main>
   </div>
 
-  <!-- API Key Modal Dialog -->
+  <!-- Settings & API Key Modal Dialog -->
   <div id="auth-modal" class="modal-backdrop" style="display: none;">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3>🔐 Přihlášení k Bohemarr</h3>
+        <h3 id="modal-settings-title">⚙️ Nastavení Bohemarr</h3>
+        <button type="button" class="btn-close-modal" id="btn-close-settings" title="Zavřít" style="display: none;">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="text-muted mb-3">Zadejte prosím API klíč vašeho Bohemarr serveru pro přístup k vyhledávání a stahování.</p>
-        <div class="form-group mb-3">
-          <label for="modal-api-key-input">API Klíč (32 znaků):</label>
-          <input
-            type="password"
-            id="modal-api-key-input"
-            class="form-control"
-            placeholder="např. 01234567890123456789012345678901"
-            autocomplete="off"
-            required
-          >
-        </div>
         <div id="auth-error-msg" class="alert alert-danger" style="display: none;"></div>
+
+        <!-- Seeding Settings Section -->
+        <div class="settings-section mb-4" id="settings-seeding-section">
+          <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🌱</span> Seeding & Torrent Hardlinky
+          </h4>
+          <label class="d-flex items-center gap-2 mb-2" style="cursor: pointer; user-select: none;">
+            <input type="checkbox" id="setting-auto-hardlink" class="ep-checkbox" style="width: 18px; height: 18px;">
+            <span style="font-weight: 500;">Automaticky vytvářet hardlinky do torrent složky</span>
+          </label>
+          <p class="text-muted mb-3" style="font-size: 0.8rem; line-height: 1.4;">
+            Při dokončení stahování vytvoří okamžitý hardlink pro qBittorrent seeding. Když Sonarr soubor přesune do své knihovny, data v torrent složce zůstanou zachována (0 MB místa navíc).
+          </p>
+          <div class="form-group">
+            <label for="setting-seeding-dir" style="font-size: 0.825rem; font-weight: 500;">Složka pro seeding (qBittorrent):</label>
+            <input
+              type="text"
+              id="setting-seeding-dir"
+              class="form-control"
+              placeholder="/downloads/torrents"
+            >
+          </div>
+        </div>
+
+        <hr id="settings-divider" style="border: 0; border-top: 1px solid var(--border-color); margin: 1rem 0;">
+
+        <!-- Auth Section -->
+        <div class="settings-section">
+          <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🔑</span> Přístupový API Klíč
+          </h4>
+          <p class="text-muted mb-2" style="font-size: 0.8rem;" id="modal-api-desc">API klíč vašeho Bohemarr serveru pro přístup k vyhledávání a stahování.</p>
+          <div class="form-group">
+            <input
+              type="password"
+              id="modal-api-key-input"
+              class="form-control"
+              placeholder="např. 01234567890123456789012345678901"
+              autocomplete="off"
+            >
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-primary w-full" id="btn-save-api-key">
-          Uložit a pokračovat
+          💾 Uložit nastavení
         </button>
-        <div class="text-muted text-center mt-2" style="font-size: 0.75rem;" id="modal-version-text">Bohemarr WebUI v1.2.0 (Build 2026.10.03-r3)</div>
+        <div class="text-muted text-center mt-2" style="font-size: 0.75rem;" id="modal-version-text">Bohemarr WebUI v1.3.0</div>
       </div>
     </div>
   </div>

@@ -16,6 +16,13 @@
   const authError = document.getElementById('auth-error-msg');
   const btnSaveApiKey = document.getElementById('btn-save-api-key');
   const btnOpenSettings = document.getElementById('btn-open-settings');
+  const btnCloseSettings = document.getElementById('btn-close-settings');
+  const chkAutoHardlink = document.getElementById('setting-auto-hardlink');
+  const inputSeedingDir = document.getElementById('setting-seeding-dir');
+  const settingsSeedingSection = document.getElementById('settings-seeding-section');
+  const settingsDivider = document.getElementById('settings-divider');
+  const modalSettingsTitle = document.getElementById('modal-settings-title');
+  const modalApiDesc = document.getElementById('modal-api-desc');
 
   const tabButtons = document.querySelectorAll('.nav-btn');
   const tabPanes = document.querySelectorAll('.tab-pane');
@@ -97,7 +104,7 @@
     }
   }
 
-  // --- Auth Modal ---
+  // --- Settings & Auth Modal ---
   function openAuthModal(errorMsg = '') {
     authModal.style.display = 'flex';
     authInput.value = apiKey;
@@ -107,13 +114,49 @@
     } else {
       authError.style.display = 'none';
     }
-    authInput.focus();
+
+    const isAuthenticated = Boolean(apiKey);
+    if (isAuthenticated) {
+      if (btnCloseSettings) btnCloseSettings.style.display = 'block';
+      if (settingsSeedingSection) settingsSeedingSection.style.display = 'block';
+      if (settingsDivider) settingsDivider.style.display = 'block';
+      if (modalSettingsTitle) modalSettingsTitle.textContent = '⚙️ Nastavení Bohemarr';
+      if (modalApiDesc) modalApiDesc.textContent = 'API klíč vašeho Bohemarr serveru (ponechte beze změny, pokud klíč neměníte).';
+      if (chkAutoHardlink) chkAutoHardlink.checked = serverConfig.autoHardlink !== false;
+      if (inputSeedingDir) inputSeedingDir.value = serverConfig.seedingDir || '/downloads/torrents';
+      btnSaveApiKey.textContent = '💾 Uložit nastavení';
+    } else {
+      if (btnCloseSettings) btnCloseSettings.style.display = 'none';
+      if (settingsSeedingSection) settingsSeedingSection.style.display = 'none';
+      if (settingsDivider) settingsDivider.style.display = 'none';
+      if (modalSettingsTitle) modalSettingsTitle.textContent = '🔐 Přihlášení k Bohemarr';
+      if (modalApiDesc) modalApiDesc.textContent = 'Zadejte prosím API klíč vašeho Bohemarr serveru pro přístup k vyhledávání a stahování.';
+      btnSaveApiKey.textContent = 'Uložit a pokračovat';
+      authInput.focus();
+    }
   }
 
   function closeAuthModal() {
+    if (!apiKey) return; // Must authenticate before closing
     authModal.style.display = 'none';
     authError.style.display = 'none';
   }
+
+  if (btnCloseSettings) {
+    btnCloseSettings.addEventListener('click', closeAuthModal);
+  }
+
+  authModal.addEventListener('click', (e) => {
+    if (e.target === authModal && apiKey) {
+      closeAuthModal();
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && authModal.style.display === 'flex' && apiKey) {
+      closeAuthModal();
+    }
+  });
 
   async function checkAuthAndInit() {
     if (!apiKey) {
@@ -138,17 +181,47 @@
       authError.style.display = 'block';
       return;
     }
+
+    const keyChanged = val !== apiKey;
+    const oldKey = apiKey;
     apiKey = val;
     localStorage.setItem('bohemarr_api_key', apiKey);
+
     try {
-      await apiRequest('/api/ui/auth');
+      if (keyChanged || !oldKey) {
+        await apiRequest('/api/ui/auth');
+      }
+
+      // If already authenticated, save seeding settings too
+      if (oldKey && chkAutoHardlink && inputSeedingDir) {
+        const confRes = await apiRequest('/api/ui/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            autoHardlink: chkAutoHardlink.checked,
+            seedingDir: inputSeedingDir.value.trim() || '/downloads/torrents',
+          }),
+        });
+        if (confRes) {
+          serverConfig.autoHardlink = confRes.autoHardlink;
+          serverConfig.seedingDir = confRes.seedingDir;
+        }
+      }
+
       closeAuthModal();
-      showToast('Úspěšně přihlášeno', 'success');
-      await loadConfigAndProviders();
-      loadQueue();
-      startPolling();
+      showToast('Nastavení bylo úspěšně uloženo', 'success');
+
+      if (!oldKey) {
+        await loadConfigAndProviders();
+        loadQueue();
+        startPolling();
+      }
     } catch (err) {
-      authError.textContent = 'Zadaný API klíč je neplatný.';
+      if (keyChanged) {
+        apiKey = oldKey;
+        localStorage.setItem('bohemarr_api_key', oldKey);
+      }
+      authError.textContent = err.message || 'Chyba při ukládání nastavení.';
       authError.style.display = 'block';
     }
   });
