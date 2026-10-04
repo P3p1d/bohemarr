@@ -11,6 +11,8 @@
 - [x] Zobrazení verzování aplikace ve WebUI pro přehled o nasazených iteracích
 - [x] Stahování po sériích (možnost stáhnout konkrétní sérii místo nutnosti stahovat veškerý obsah celého seriálu) + výběr konkrétních epizod
 - [x] Automatická tvorba seeding hardlinku do složky torrentů (`downloads/torrents/`) ihned po stažení pro okamžitý seeding v qBittorrentu i po přesunu Sonarrem
+- [x] Možnost přepínat a konfigurovat seeding hardlinky přímo ve WebUI (toggle, složka, uložení do config.json)
+- [x] Tlačítko pro zavření (křížek, klávesa Esc, klik mimo modal) pro nastavení a API klíč
 
 ## 📋 Plánované funkce a nápady (Backlog)
 - [ ] Možnost volby kvality stahování (1080p / 720p / 576p) ve WebUI, pokud archiv nabízí vícero rozlišení
@@ -19,5 +21,4 @@
 - [ ] Filtrování a řazení v historii stažených souborů (podle data, velikosti, providera)
 - [ ] Tlačítko pro promazání/smazání staženého souboru z disku přímo z WebUI
 - úprava flow při stahování vícero souborů, jestli by šlo jedny stahovat a během toho se dešifrují již stažené
-při kliknutí na "API klíč" chybí nějaký křížek nebo cesta jak zpátky
-odhad velikosti je dost nepřesný ale chápu, že to uplne nejde
+- odhad velikosti je dost nepřesný ale chápu, že to uplne nejde
