@@ -48,9 +48,17 @@ export async function loadConfig(): Promise<Config> {
   for (const [id, value] of Object.entries(providers)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Invalid provider configuration: ${id}`);
   }
-  await Promise.all(categories.map(category => mkdir(resolve(downloadsDir, category), { recursive: true })));
+  const autoHardlink = raw.autoHardlink !== undefined
+    ? Boolean(raw.autoHardlink)
+    : (process.env.AUTO_HARDLINK ? process.env.AUTO_HARDLINK !== 'false' : true);
+  const seedingDir = resolve(String(process.env.SEEDING_DIR || raw.seedingDir || resolve(downloadsDir, 'torrents')));
+  await Promise.all([
+    ...categories.map(category => mkdir(resolve(downloadsDir, category), { recursive: true })),
+    autoHardlink ? mkdir(seedingDir, { recursive: true }) : Promise.resolve(),
+  ]);
   return {
     host: process.env.HOST || String(raw.host || '127.0.0.1'), port, apiKey, publicUrl, dataDir, downloadsDir,
+    seedingDir, autoHardlink,
     concurrency: integer(process.env.CONCURRENCY ?? raw.concurrency, 2, 1, 32),
     ffmpeg: process.env.FFMPEG || String(raw.ffmpeg || 'ffmpeg'),
     ffprobe: process.env.FFPROBE || String(raw.ffprobe || 'ffprobe'),

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-04 (v1.3.0)
+
+### Automatic Seeding Hardlinks
+- Automatically create a hardlink in `downloadsDir/torrents` (default `/downloads/torrents`) upon download completion.
+- Keeps files available for qBittorrent continuous seeding and WebUI access even after Sonarr moves the files to `/data/tvshows`.
+- Uses zero additional storage by linking to the identical inode across directory structures on the same volume.
+- Added visual `🌱 Seeding hardlink` indicator and path fallback in WebUI completed downloads list and file streamer.
+- Retroactively linked Season 1 of *Metoda Markovič: Hojer* (E01–E06) on the home server.
+
 ## 2026-10-03
 
 ### Radarr TMDB movie matching

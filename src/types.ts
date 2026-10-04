@@ -148,6 +148,8 @@ export interface Config {
   publicUrl: string;
   dataDir: string;
   downloadsDir: string;
+  seedingDir?: string;
+  autoHardlink?: boolean;
   concurrency: number;
   ffmpeg: string;
   ffprobe: string;
@@ -173,6 +175,7 @@ export interface Job {
   updatedAt: number;
   finishedAt?: number;
   file?: string;
+  seedingFile?: string;
 }
 
 export interface MediaSegment {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { link, mkdir, rm, stat } from 'node:fs/promises';
+import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { Store } from './store.ts';
 import { releaseTitle, sanitizeFilename } from './providers/common.ts';
 import type { Config, DownloadMedia, Job, Provider, Release } from './types.ts';
@@ -92,7 +92,31 @@ export class Queue {
       if (this.store.job(job.id)?.status === 'Downloading') {
         const result = await stat(file);
         if (!result.isFile() || result.size === 0) throw new Error('Downloader produced no media file');
-        this.store.updateJob(job.id, { status: 'Completed', progress: 100, bytes: result.size, totalBytes: result.size, error: '', finishedAt: Date.now(), file });
+        let seedingFile: string | undefined;
+        const autoHardlink = this.config.autoHardlink ?? true;
+        const seedingDir = this.config.seedingDir || resolve(this.config.downloadsDir, 'torrents');
+        if (autoHardlink) {
+          try {
+            await mkdir(seedingDir, { recursive: true });
+            const targetPath = resolve(seedingDir, basename(file));
+            try {
+              const existingStat = await stat(targetPath);
+              if (existingStat.ino !== result.ino) {
+                await rm(targetPath, { force: true });
+                await link(file, targetPath);
+              }
+            } catch {
+              await link(file, targetPath);
+            }
+            seedingFile = targetPath;
+          } catch (err) {
+            console.warn(`[Queue] Failed to create seeding hardlink for ${file}:`, err);
+          }
+        }
+        this.store.updateJob(job.id, {
+          status: 'Completed', progress: 100, bytes: result.size, totalBytes: result.size, error: '', finishedAt: Date.now(), file,
+          ...(seedingFile ? { seedingFile } : {}),
+        });
       }
     } catch (error) {
       if (!signal.aborted && this.store.job(job.id)?.status === 'Downloading') {

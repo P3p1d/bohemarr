@@ -49,8 +49,8 @@ export async function findJobFile(storagePath: string): Promise<string | undefin
   }
 }
 
-export const APP_VERSION = '1.2.0';
-export const APP_BUILD = '2026.10.03-r3';
+export const APP_VERSION = '1.3.0';
+export const APP_BUILD = '2026.10.04-r1';
 
 export function registerUiRoutes(
   app: FastifyInstance,
@@ -103,6 +103,8 @@ export function registerUiRoutes(
       build: APP_BUILD,
       categories: config.categories,
       downloadsDir: config.downloadsDir,
+      seedingDir: config.seedingDir,
+      autoHardlink: config.autoHardlink ?? true,
     };
   });
 
@@ -380,6 +382,9 @@ export function registerUiRoutes(
         if (!filePath || !existsSync(filePath)) {
           filePath = await findJobFile(job.storage);
         }
+        if ((!filePath || !existsSync(filePath)) && job.seedingFile && existsSync(job.seedingFile)) {
+          filePath = job.seedingFile;
+        }
 
         return {
           id: job.id,
@@ -395,6 +400,8 @@ export function registerUiRoutes(
           storage: job.storage,
           filePath: filePath || null,
           hasFile: Boolean(filePath && existsSync(filePath)),
+          seedingFile: job.seedingFile || null,
+          hasSeedingFile: Boolean(job.seedingFile && existsSync(job.seedingFile)),
           error: job.error,
           createdAt: job.createdAt,
           finishedAt: job.finishedAt || job.updatedAt,
@@ -431,6 +438,9 @@ export function registerUiRoutes(
     let filePath = job.file;
     if (!filePath || !existsSync(filePath)) {
       filePath = await findJobFile(job.storage);
+    }
+    if ((!filePath || !existsSync(filePath)) && job.seedingFile && existsSync(job.seedingFile)) {
+      filePath = job.seedingFile;
     }
     if (!filePath || !existsSync(filePath)) {
       return reply.code(404).type('text/plain').send('Soubor na disku nebyl nalezen');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempDisposable, mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdtempDisposable, mkdir, writeFile, readFile, access, stat } from 'node:fs/promises';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -170,3 +170,25 @@ test('Arr default priority is accepted and duplicate submissions retain their do
   await assert.rejects(sab.handle({ mode: 'addfile', cat: '../escape' }, descriptor), /Unknown category/);
   assert.equal(f.store.jobs().length, 1);
 });
+
+test('completed download automatically creates a hardlink in seedingDir', async () => {
+  const f = await fixture();
+  await using dir = f.dir;
+  using store = f.store;
+  await using queue = new Queue(f.store, f.config, f.providers, async (_sources, directory) => {
+    const file = join(directory, 'test-episode.mp4');
+    await writeFile(file, 'video content payload');
+    return file;
+  });
+  const job = queue.add(release, 'tv');
+  while (store.job(job.id)?.status !== 'Completed') {
+    await new Promise(r => setTimeout(r, 10));
+  }
+  const completed = store.job(job.id)!;
+  assert.equal(completed.status, 'Completed');
+  assert.ok(completed.seedingFile);
+  const srcStat = await stat(completed.file!);
+  const seedStat = await stat(completed.seedingFile!);
+  assert.equal(seedStat.ino, srcStat.ino);
+});
+

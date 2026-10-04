@@ -907,6 +907,7 @@
     downloads.forEach(item => {
       const isFailed = item.status === 'Failed';
       const statusBadge = isFailed ? '<span class="badge badge-danger">Selhalo</span>' : '<span class="badge badge-success">Dokončeno</span>';
+      const seedingBadge = item.hasSeedingFile ? '<span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3);" title="Soubor je hardlinkován do torrent složky pro seeding">🌱 Seeding hardlink</span>' : '';
       const dateStr = item.finishedAt ? new Date(item.finishedAt).toLocaleString('cs-CZ') : '';
       const sizeStr = item.bytes ? formatBytes(item.bytes) : '0 B';
       const displayPath = item.filePath || item.storage;
@@ -920,6 +921,7 @@
                 <span class="badge badge-primary">${escapeHtml(item.provider)}</span>
                 <span class="badge badge-secondary">${escapeHtml(item.category)}</span>
                 ${statusBadge}
+                ${seedingBadge}
                 <span class="text-muted">${sizeStr}</span>
                 <span class="text-muted">${dateStr}</span>
               </div>
